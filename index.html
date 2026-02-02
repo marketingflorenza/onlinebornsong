@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAM Dashboard: Ads & Sales</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="container">
+        <div class="topbar glass-panel">
+            <h1>🚀 RAM Dashboard: Marketing & Sales</h1>
+            <div class="controls">
+                <div class="control-row">
+                    <label>Start: <input type="date" id="startDate" /></label>
+                    <label>End: <input type="date" id="endDate" /></label>
+                    <button class="btn" id="refreshBtn">รีเฟรช / คำนวณใหม่</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+        <div class="loading" id="loading"><div class="spinner"></div><p>กำลังดึงข้อมูล...</p></div>
+        
+        <div class="glass-panel" style="border: 1px solid var(--neon-magenta); margin-bottom: 30px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h2 class="chart-title" style="margin:0; color:var(--neon-magenta);">✨ AI Sales Analyst</h2>
+            </div>
+            <button class="btn" id="geminiBtn" style="background: linear-gradient(135deg, #ff00f2, #bc00dd); width: 100%; margin-top: 15px;">🤖 สร้าง Prompt วิเคราะห์ข้อมูลด้วย Gemini</button>
+            <p style="font-size: 0.8em; color: var(--text-secondary); margin-top: 5px; text-align: center;">*กดปุ่มเพื่อสร้าง Prompt แล้วนำไปวางใน Google Gemini</p>
+        </div>
+
+        <div class="section-header"><h2>🎯 Marketing Funnel Overview</h2></div>
+        <div class="stats-grid" id="funnelStatsGrid"></div>
+
+        <div class="section-header"><h2>📊 Marketing Performance</h2></div>
+        <div class="stats-grid" id="adsStatsGrid"></div>
+        
+        <div class="glass-panel">
+            <h2 class="chart-title">💰 Daily Ad Spend</h2>
+            <div class="chart-wrapper-large">
+                <canvas id="dailySpendChart"></canvas>
+            </div>
+        </div>
+
+        <div class="glass-panel top-categories-table scrollable-table">
+            <div class="table-header" style="display:flex; justify-content:space-between; margin-bottom:15px;">
+                <h2 class="chart-title">📋 Campaign Details</h2>
+                <input type="text" id="campaignSearchInput" class="search-input" placeholder="ค้นหาแคมเปญ...">
+            </div>
+            <table>
+                <thead id="campaignsTableHeader">
+                    <tr>
+                        <th class="sortable" data-key="name">Campaign Name <span class="sort-icon">⇅</span></th>
+                        <th class="sortable" data-key="status">Status <span class="sort-icon">⇅</span></th>
+                        <th class="sortable" data-key="insights.spend">Spend (THB) <span class="sort-icon">⇅</span></th>
+                        <th class="sortable" data-key="insights.impressions">Impressions <span class="sort-icon">⇅</span></th>
+                        <th class="sortable" data-key="insights.purchases">Purchases <span class="sort-icon">⇅</span></th>
+                        <th class="sortable" data-key="insights.messaging_conversations">Messaging <span class="sort-icon">⇅</span></th>
+                        <th class="sortable" data-key="insights.cpm">CPM <span class="sort-icon">⇅</span></th>
+                    </tr>
+                </thead>
+                <tbody id="campaignsTableBody"></tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 60px; border-top: 2px dashed var(--neon-cyan); padding-top: 40px;"></div>
+
+        <div class="section-header"><h2>💰 Sales Performance Overview</h2></div>
+        <div class="stats-grid" id="salesOverviewStatsGrid"></div>
+
+        <div class="section-header"><h2>💸 Revenue Breakdown</h2></div>
+        <div id="revenueContainer"></div> 
+
+        <div class="glass-panel scrollable-table">
+            <h2 class="chart-title">📡 ตารางสรุปช่องทางการติดต่อ</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ช่องทาง</th>
+                        <th>จำนวนบิล P1</th>
+                        <th>P2 Leads</th>
+                        <th>จำนวนบิล UP P2</th>
+                        <th>ยอดขายรวม</th>
+                    </tr>
+                </thead>
+                <tbody id="channelTableBody"></tbody>
+            </table>
+        </div>
+
+        <div class="section-header"><h2>📋 Category Performance Breakdown</h2></div>
+        <div class="glass-panel">
+            <h2 class="chart-title">กราฟยอดขายตามหมวดหมู่</h2>
+            <div class="chart-wrapper-large">
+                <canvas id="revenueBarChart"></canvas>
+            </div>
+        </div>
+
+        <div class="glass-panel scrollable-table">
+            <h2 class="chart-title">รายละเอียดตามหมวดหมู่ (คลิกเพื่อดูรายการบิล)</h2>
+            <p style="color:var(--text-secondary); font-size:0.9em; margin-bottom:10px;">คลิกที่แถวเพื่อดูรายละเอียด P1, UP P1 (พร้อมประวัติเดิม), UP P2</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Category</th>
+                        <th>P1 Bills</th>
+                        <th>UP P1 Bills</th>
+                        <th>UP P2 Bills</th>
+                        <th>Total Revenue</th>
+                    </tr>
+                </thead>
+                <tbody id="categoryTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="detailsModal" class="modal-overlay">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2 id="modalTitle" style="color:var(--neon-cyan); margin:0;">Details</h2>
+                <button class="btn" id="modalCloseBtn" style="padding: 5px 15px;">X</button>
+            </div>
+            <div id="modalBody" class="modal-body" style="padding-bottom: 20px;"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
