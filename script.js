@@ -2,7 +2,7 @@
 // 1. CONFIGURATION
 // ================================================================
 const CONFIG = {
-    API_BASE_URL: 'https://backend-api-ram.vercel.app/api',
+    API_BASE_URL: 'https://my-facebook-backend-bsk.vercel.app/api/bornsong',
     SHEET_ID: '1dlgM7YaQmJQTuiuNdAMb6tjKHllPgIs8MjfgGZnp8jU',
     SHEET_NAME_SUMMARY: 'SUM',
     COLUMN_NAMES: {
@@ -71,7 +71,7 @@ async function fetchAdsData(startDate, endDate) {
     const since = startDate.split('-').reverse().join('-');
     const until = endDate.split('-').reverse().join('-');
     try {
-        const response = await fetch(`${CONFIG.API_BASE_URL}/databillRam?since=${since}&until=${until}`);
+        const response = await fetch(`${CONFIG.API_BASE_URL}/bornsong?since=${since}&until=${until}`);
         if (!response.ok) throw new Error('Ads API Error');
         return await response.json();
     } catch (error) {
