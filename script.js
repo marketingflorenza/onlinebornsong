@@ -2,6 +2,7 @@
 // 1. CONFIGURATION
 // ================================================================
 const CONFIG = {
+    // URL นี้ถูกต้องแล้ว (ชี้ไปที่ไฟล์ api/bornsong.js โดยตรง)
     API_BASE_URL: 'https://my-facebook-backend-bsk.vercel.app/api/bornsong',
     SHEET_ID: '1dlgM7YaQmJQTuiuNdAMb6tjKHllPgIs8MjfgGZnp8jU',
     SHEET_NAME_SUMMARY: 'SUM',
@@ -71,8 +72,13 @@ async function fetchAdsData(startDate, endDate) {
     const since = startDate.split('-').reverse().join('-');
     const until = endDate.split('-').reverse().join('-');
     try {
-        const response = await fetch(`${CONFIG.API_BASE_URL}/bornsong?since=${since}&until=${until}`);
-        if (!response.ok) throw new Error('Ads API Error');
+        // ✅ แก้ไขแล้ว: ลบ /bornsong ออก เพราะ URL ใน CONFIG มีให้อยู่แล้ว
+        const response = await fetch(`${CONFIG.API_BASE_URL}?since=${since}&until=${until}`);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Ads API Error: ${response.status} - ${errorText}`);
+        }
         return await response.json();
     } catch (error) {
         console.warn("Ads Fetch Error:", error);
@@ -492,22 +498,30 @@ async function main() {
     ui.errorMessage.classList.remove('show');
     
     try {
+        // โหลดข้อมูลยอดขายก่อน (Sheet)
         await fetchSalesData();
         const salesRes = processSalesData(allSalesDataCache, ui.startDate.value, ui.endDate.value);
         latestSalesAnalysis = salesRes;
         renderSalesStats(salesRes);
 
+        // โหลดข้อมูล Ads (API)
         const adsRes = await fetchAdsData(ui.startDate.value, ui.endDate.value);
+        
         if (adsRes.success) {
             latestCampaignData = adsRes.data.campaigns;
             latestAdsTotals = adsRes.totals; 
+            
             renderFunnel(adsRes.totals);
             renderAdsStats(adsRes.totals);
             updateCampaignsTable();
             renderDailySpendChart(adsRes.data.dailySpend);
         } else {
+            console.error("Ads Data Error:", adsRes.error);
             latestAdsTotals = {}; 
-            document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
+            
+            // แสดง Error ในหน้าจอถ้าโหลด Ads ไม่ได้
+            document.getElementById('adsStatsGrid').innerHTML = `<p style="color:var(--color-negative);">Failed to load Ads data: ${adsRes.error}</p>`;
+            document.getElementById('funnelStatsGrid').innerHTML = '';
         }
 
     } catch (err) {
