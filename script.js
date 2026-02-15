@@ -2,7 +2,6 @@
 // 1. CONFIGURATION
 // ================================================================
 const CONFIG = {
-    // URL นี้ถูกต้องแล้ว (ชี้ไปที่ไฟล์ api/bornsong.js โดยตรง)
     API_BASE_URL: 'https://my-facebook-backend-bsk.vercel.app/api/bornsong',
     SHEET_ID: '1dlgM7YaQmJQTuiuNdAMb6tjKHllPgIs8MjfgGZnp8jU',
     SHEET_NAME_SUMMARY: 'SUM',
@@ -72,13 +71,8 @@ async function fetchAdsData(startDate, endDate) {
     const since = startDate.split('-').reverse().join('-');
     const until = endDate.split('-').reverse().join('-');
     try {
-        // ✅ แก้ไขแล้ว: ลบ /bornsong ออก เพราะ URL ใน CONFIG มีให้อยู่แล้ว
         const response = await fetch(`${CONFIG.API_BASE_URL}?since=${since}&until=${until}`);
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Ads API Error: ${response.status} - ${errorText}`);
-        }
+        if (!response.ok) throw new Error('Ads API Error');
         return await response.json();
     } catch (error) {
         console.warn("Ads Fetch Error:", error);
@@ -186,15 +180,46 @@ function processSalesData(rows, startDate, endDate) {
 // ================================================================
 // 6. RENDERING FUNCTIONS
 // ================================================================
+
 function renderFunnel(adsTotals) {
     const spend = adsTotals.spend || 0;
     const rev = latestSalesAnalysis.summary.totalRevenue || 0;
+    const totalBills = latestSalesAnalysis.summary.totalBills || 0;
+    const totalCustomers = latestSalesAnalysis.summary.totalCustomers || 0;
+    const messaging = adsTotals.messaging_conversations || 0;
+    
     const roas = spend > 0 ? rev / spend : 0;
+    const cpl = totalBills > 0 ? spend / totalBills : 0;
+    const costPerHead = totalCustomers > 0 ? spend / totalCustomers : 0;
+    
+    const contentEfficiency = messaging > 0 ? ((totalBills / messaging) * 100).toFixed(2) : "0.00";
+    const bookingToClose = totalBills > 0 ? ((totalCustomers / totalBills) * 100).toFixed(2) : "0.00";
     
     document.getElementById('funnelStatsGrid').innerHTML = `
-        <div class="stat-card"><div class="stat-number">${formatCurrency(spend)}</div><div class="stat-label">Ad Spend</div></div>
-        <div class="stat-card"><div class="stat-number">${formatCurrency(rev)}</div><div class="stat-label">Total Revenue</div></div>
-        <div class="stat-card"><div class="stat-number">${roas.toFixed(2)}x</div><div class="stat-label">ROAS</div></div>
+        <div class="stat-card">
+            <div class="stat-number">${formatCurrency(spend)}</div>
+            <div class="stat-label">Ad Spend</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">${formatCurrency(rev)}</div>
+            <div class="stat-label">Total Revenue</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">${roas.toFixed(2)}x</div>
+            <div class="stat-label">ROAS</div>
+        </div>
+        <div class="stat-card" style="border: 1px solid var(--neon-cyan); background: rgba(0, 242, 254, 0.05);">
+            <div class="stat-number" style="color: var(--neon-cyan);">${formatCurrency(cpl)}</div>
+            <div class="stat-label">Cost per Booking</div>
+        </div>
+        <div class="stat-card" style="border: 1px solid #ff00f2; background: rgba(255, 0, 242, 0.05);">
+            <div class="stat-number" style="color: #ff00f2;">${formatCurrency(costPerHead)}</div>
+            <div class="stat-label">Cost per Head</div>
+        </div>
+        <div class="stat-card" style="border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05);">
+            <div class="stat-number" style="color: #f59e0b;">${bookingToClose}%</div>
+            <div class="stat-label">Booking → Close</div>
+        </div>
     `;
 }
 
@@ -269,6 +294,14 @@ function renderSalesStats(data) {
         <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.totalCustomers)}</div><div class="stat-label">Total Customers</div></div>
     `;
 
+    const p1ToUpP1Rate = data.summary.p1Bills > 0 
+        ? ((data.summary.upp1Bills / data.summary.p1Bills) * 100).toFixed(2) 
+        : "0.00";
+    
+    const p2ToUpP2Rate = data.summary.p2Leads > 0 
+        ? ((data.summary.upp2Bills / data.summary.p2Leads) * 100).toFixed(2) 
+        : "0.00";
+
     document.getElementById('revenueContainer').innerHTML = `
         <div style="margin-bottom: 10px; color: var(--neon-cyan); font-weight: 600;">ยอดขายแยกตามประเภท (THB)</div>
         <div class="stats-grid">
@@ -277,18 +310,27 @@ function renderSalesStats(data) {
             <div class="stat-card"><div class="stat-number" style="color:#f59e0b">${formatCurrency(data.summary.upp2Revenue)}</div><div class="stat-label">UP P2 Revenue</div></div>
         </div>
         
-        <div style="margin-bottom: 10px; margin-top: 20px; color: var(--neon-cyan); font-weight: 600;">จำนวนบิลแยกตามประเภท (Bills Count)</div>
-        <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+        <div style="margin-bottom: 10px; margin-top: 20px; color: var(--neon-cyan); font-weight: 600;">วิเคราะห์อัตราส่วนการอัพเกรด (Success Rate)</div>
+        <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.p1Bills)}</div><div class="stat-label">P1 Bills</div></div>
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp1Bills)}</div><div class="stat-label">UP P1 Bills</div></div>
-            <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp2Bills)}</div><div class="stat-label">UP P2 Bills</div></div>
+            <div class="stat-card" style="border: 1px solid #ec4899; background: rgba(236, 72, 153, 0.05);">
+                <div class="stat-number" style="color:#ec4899">${p1ToUpP1Rate}%</div>
+                <div class="stat-label">P1 ➔ UP P1 Rate</div>
+            </div>
+            
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.p2Leads)}</div><div class="stat-label">P2 Leads</div></div>
+            <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp2Bills)}</div><div class="stat-label">UP P2 Bills</div></div>
+            <div class="stat-card" style="border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05);">
+                <div class="stat-number" style="color:#f59e0b">${p2ToUpP2Rate}%</div>
+                <div class="stat-label">P2 ➔ UP P2 Rate</div>
+            </div>
         </div>
     `;
 
     const sortedChannels = Object.entries(data.channels).sort((a,b) => b[1].revenue - a[1].revenue);
     document.getElementById('channelTableBody').innerHTML = sortedChannels.map(([name, val]) => `
-        <tr>
+        <tr class="clickable-row" onclick="showChannelDetails('${name.replace(/'/g, "\\'")}')">
             <td><strong>${name}</strong></td>
             <td>${formatNumber(val.p1)}</td>
             <td>${formatNumber(val.p2)}</td>
@@ -425,6 +467,45 @@ function showCategoryDetails(categoryName) {
     ui.modal.classList.add('show');
 }
 
+function showChannelDetails(channelName) {
+    const C = CONFIG.COLUMN_NAMES;
+    const filtered = latestSalesAnalysis.filteredRows.filter(r => (r[C.CHANNEL] || 'ไม่ระบุ') === channelName);
+
+    const groups = {
+        p1: filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0),
+        p2: filtered.filter(r => r[C.P2] && String(r[C.P2]).trim() !== ''),
+        upP2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0)
+    };
+
+    ui.modalTitle.textContent = `ช่องทาง: ${channelName}`;
+    let html = '';
+
+    if (groups.p1.length > 0) {
+        html += `<div class="type-section"><div class="type-title">📦 P1 Bills (ลูกค้าใหม่/ซื้อทันที) <span class="type-badge">${groups.p1.length}</span></div>
+        <div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>
+        ${groups.p1.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td></tr>`).join('')}
+        </tbody></table></div></div>`;
+    }
+
+    if (groups.p2.length > 0) {
+        html += `<div class="type-section"><div class="type-title">📋 P2 Leads (รายชื่อสนใจ) <span class="type-badge">${groups.p2.length}</span></div>
+        <div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th></tr></thead><tbody>
+        ${groups.p2.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.P2] || '-'}</small></td></tr>`).join('')}
+        </tbody></table></div></div>`;
+    }
+
+    if (groups.upP2.length > 0) {
+        html += `<div class="type-section"><div class="type-title">💎 UP P2 Bills (ปิดการขายจาก Lead) <span class="type-badge">${groups.upP2.length}</span></div>
+        <div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>
+        ${groups.upP2.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td></tr>`).join('')}
+        </tbody></table></div></div>`;
+    }
+
+    if (html === '') html = '<p style="text-align:center; padding: 20px;">No transaction details found for this channel.</p>';
+    ui.modalBody.innerHTML = html;
+    ui.modal.classList.add('show');
+}
+
 function showAdDetails(campaignId) {
     const campaign = latestCampaignData.find(c => c.id === campaignId);
     if (!campaign) return;
@@ -435,10 +516,49 @@ function showAdDetails(campaignId) {
         ui.modalBody.innerHTML = '<p style="text-align:center;">No ads found.</p>';
     } else {
         ui.modalBody.innerHTML = ads.sort((a,b) => b.insights.spend - a.insights.spend).map(ad => `
-            <div class="ad-card"><img src="${ad.thumbnail_url}" onerror="this.src='https://placehold.co/80x80?text=No+Img'"><div style="flex:1;"><h4>${ad.name}</h4><div style="font-size:0.9em; color:#a0a0b0; display:grid; grid-template-columns: 1fr 1fr; margin-top:5px;"><div>Spend: <span style="color:white;">${formatCurrency(ad.insights.spend)}</span></div><div>Purchases: <span style="color:white;">${formatNumber(ad.insights.purchases)}</span></div><div>Impressions: <span style="color:white;">${formatNumber(ad.insights.impressions)}</span></div><div>CPM: <span style="color:white;">${formatCurrency(ad.insights.cpm)}</span></div></div></div></div>
+            <div class="ad-card">
+                <img src="${ad.thumbnail_url}" onerror="this.src='https://placehold.co/80x80?text=No+Img'">
+                <div style="flex:1;">
+                    <h4>${ad.name}</h4>
+                    <div style="font-size:0.9em; color:#a0a0b0; display:grid; grid-template-columns: 1fr 1fr; margin-top:5px;">
+                        <div>Spend: <span style="color:white;">${formatCurrency(ad.insights.spend)}</span></div>
+                        <div>Purchases: <span style="color:white;">${formatNumber(ad.insights.purchases)}</span></div>
+                        <div>Messaging: <span style="color:white;">${formatNumber(ad.insights.messaging_conversations)}</span></div>
+                        <div>Impressions: <span style="color:white;">${formatNumber(ad.insights.impressions)}</span></div>
+                        <div>CPM: <span style="color:white;">${formatCurrency(ad.insights.cpm)}</span></div>
+                    </div>
+                </div>
+            </div>
         `).join('');
     }
     ui.modal.classList.add('show');
+}
+
+// ================================================================
+// 8. GEMINI PROMPT GENERATION (PRO VERSION WITH COMPARE & ALL TOP 5)
+// ================================================================
+
+function getCompareData() {
+    const start = new Date(ui.startDate.value);
+    const end = new Date(ui.endDate.value);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    const prevEnd = new Date(start);
+    prevEnd.setDate(prevEnd.getDate() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - diffDays + 1);
+
+    const prevData = processSalesData(
+        allSalesDataCache, 
+        prevStart.toISOString().split('T')[0], 
+        prevEnd.toISOString().split('T')[0]
+    );
+
+    return {
+        period: `${formatDate(prevStart)} - ${formatDate(prevEnd)}`,
+        data: prevData
+    };
 }
 
 function generateGeminiPrompt() {
@@ -448,44 +568,77 @@ function generateGeminiPrompt() {
     const num = (n) => formatNumber(n);
     const branchName = document.querySelector('h1').innerText.split(':')[0].trim();
 
-    // Calculate ROAS
     const spend = ads.spend || 0;
     const rev = s.totalRevenue || 0;
+    const messaging = ads.messaging_conversations || 0;
     const roas = spend > 0 ? (rev / spend).toFixed(2) + 'x' : '0x';
+    const cpb = s.totalBills > 0 ? (spend / s.totalBills) : 0;
+    const cph = s.totalCustomers > 0 ? (spend / s.totalCustomers) : 0;
+    const bookingClose = s.totalBills > 0 ? ((s.totalCustomers / s.totalBills) * 100).toFixed(2) : 0;
+    
+    const p1ToUpP1Rate = s.p1Bills > 0 ? ((s.upp1Bills / s.p1Bills) * 100).toFixed(2) : "0.00";
+    const p2ToUpP2Rate = s.p2Leads > 0 ? ((s.upp2Bills / s.p2Leads) * 100).toFixed(2) : "0.00";
 
-    // Top 5 Helpers
+    const compare = getCompareData();
+    const ps = compare.data.summary;
+
+    const calcDiff = (curr, prev) => {
+        const diff = curr - prev;
+        const pct = prev > 0 ? ((diff / prev) * 100).toFixed(2) : "N/A";
+        const sign = diff >= 0 ? "+" : "";
+        return `${sign}${num(diff)} (${sign}${pct}%)`;
+    };
+
+    const calcDiffCurr = (curr, prev) => {
+        const diff = curr - prev;
+        const pct = prev > 0 ? ((diff / prev) * 100).toFixed(2) : "N/A";
+        const sign = diff >= 0 ? "+" : "";
+        return `${sign}${f(diff)} (${sign}${pct}%)`;
+    };
+
     const cats = latestSalesAnalysis.categories;
     const getTop5 = (sortKey) => [...cats].sort((a,b) => b[sortKey] - a[sortKey]).slice(0, 5);
 
-    let p = `--- [บริบทของการวิเคราะห์] ---\n`;
+    let p = `--- [บริบทและการวิเคราะห์เปรียบเทียบ] ---\n`;
     p += `* สาขา: ${branchName}\n`;
-    p += `* ช่วงเวลา: ${formatDate(new Date(ui.startDate.value))} ถึง ${formatDate(new Date(ui.endDate.value))}\n\n`;
+    p += `* ช่วงเวลาปัจจุบัน: ${formatDate(new Date(ui.startDate.value))} ถึง ${formatDate(new Date(ui.endDate.value))}\n`;
+    p += `* ช่วงเวลาที่นำมาเทียบ: ${compare.period}\n\n`;
 
-    p += `--- [ข้อมูล Ads] ---\n`;
+    p += `--- [ข้อมูล Ads & Funnel (ปัจจุบัน)] ---\n`;
     p += `Ad Spend: ${f(spend)}\n`;
     p += `ROAS: ${roas}\n`;
-    p += `Impressions: ${num(ads.impressions)}\n`;
-    p += `Messaging: ${num(ads.messaging_conversations)}\n`;
-    p += `CPM: ${f(ads.cpm)}\n`;
-    p += `Ads Purchases: ${num(ads.purchases)}\n\n`;
+    p += `Messaging: ${num(messaging)}\n`;
+    p += `Cost Per Booking: ${f(cpb)}\n`;
+    p += `Cost Per Head: ${f(cph)}\n`;
+    p += `Booking → Close (Customers/Bills): ${bookingClose}%\n\n`;
 
-    p += `--- [ข้อมูลช่วงเวลาปัจจุบัน] ---\n`;
-    p += `* ยอดขายรวม: ${f(s.totalRevenue)}\n`;
-    p += `* จำนวนบิลทั้งหมด: ${num(s.totalBills)} บิล\n`;
-    p += `* ยอดขาย P1: ${f(s.p1Revenue)}\n`;
-    p += `* ยอดขาย UP P1: ${f(s.upp1Revenue)}\n`;
-    p += `* ยอดขาย UP P2: ${f(s.upp2Revenue)}\n\n`;
+    p += `--- [เปรียบเทียบตัวเลขที่เปลี่ยนแปลง (Performance Compare)] ---\n`;
+    p += `1. ยอดขายรวม: ${calcDiffCurr(s.totalRevenue, ps.totalRevenue)}\n`;
+    p += `2. จำนวนบิล: ${calcDiff(s.totalBills, ps.totalBills)}\n`;
+    p += `3. จำนวนลูกค้า: ${calcDiff(s.totalCustomers, ps.totalCustomers)}\n`;
+    p += `4. P1 Revenue: ${calcDiffCurr(s.p1Revenue, ps.p1Revenue)}\n`;
+    p += `5. UP P1 Revenue: ${calcDiffCurr(s.upp1Revenue, ps.upp1Revenue)}\n`;
+    p += `6. UP P2 Revenue: ${calcDiffCurr(s.upp2Revenue, ps.upp2Revenue)}\n\n`;
 
-    p += `* 5 หมวดหมู่ที่ทำรายได้สูงสุด:\n` + getTop5('total').map(c => `  - ${c.name}: ${f(c.total)}`).join('\n') + `\n`;
-    p += `* 5 หมวดหมู่ P1 ที่ได้รายได้สูงสุด:\n` + getTop5('p1Val').map(c => `  - ${c.name}: ${f(c.p1Val)}`).join('\n') + `\n`;
-    p += `* 5 หมวดหมู่ UP P1 ที่ได้รายได้สูงสุด:\n` + getTop5('up1Val').map(c => `  - ${c.name}: ${f(c.up1Val)}`).join('\n') + `\n`;
-    p += `* 5 หมวดหมู่ UP P2 ที่ได้รายได้สูงสุด:\n` + getTop5('up2Val').map(c => `  - ${c.name}: ${f(c.up2Val)}`).join('\n') + `\n\n`;
+    p += `--- [ข้อมูลช่วงเวลาปัจจุบัน (รายละเอียด)] ---\n`;
+    p += `* P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
+    p += `* P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n`;
+    p += `* ยอดขาย P1: ${f(s.p1Revenue)} (${num(s.p1Bills)} บิล)\n`;
+    p += `* ยอดอัพ P1: ${f(s.upp1Revenue)} (${num(s.upp1Bills)} บิล)\n`;
+    p += `* ยอดอัพ P2: ${f(s.upp2Revenue)} (${num(s.upp2Bills)} บิล)\n`;
+    p += `* P2 Leads: ${num(s.p2Leads)} Leads\n\n`;
 
-    p += `--- [สรุปประสิทธิภาพตามช่องทาง] ---\n`;
-    p += `จำนวนบิลแต่ละประเภทยอด\n`;
+    p += `* 5 หมวดหมู่รายได้รวมสูงสุด:\n` + getTop5('total').map(c => `  - ${c.name}: ${f(c.total)}`).join('\n') + `\n\n`;
+    p += `* 5 หมวดหมู่ P1 ขายดี (บิลเยอะสุด):\n` + getTop5('p1B').map(c => `  - ${c.name}: ${num(c.p1B)} บิล`).join('\n') + `\n\n`;
+    p += `* 5 หมวดหมู่ UP P1 ขายดี (บิลเยอะสุด):\n` + getTop5('up1B').map(c => `  - ${c.name}: ${num(c.up1B)} บิล`).join('\n') + `\n\n`;
+    p += `* 5 หมวดหมู่ UP P2 ขายดี (บิลเยอะสุด):\n` + getTop5('up2B').map(c => `  - ${c.name}: ${num(c.up2B)} บิล`).join('\n') + `\n\n`;
+
+    p += `--- [วิเคราะห์ตามช่องทาง] ---\n`;
     Object.entries(latestSalesAnalysis.channels).sort((a,b) => b[1].revenue - a[1].revenue).forEach(([name, val]) => {
         p += `* ${name}: บิล P1 ${val.p1}, UP P2 ${val.upP2}, ยอดขายรวม ${f(val.revenue)}\n`;
     });
+
+    p += `\nกรุณาวิเคราะห์จุดที่ "ตัวเลขหายไป" หรือลดลงอย่างมีนัยสำคัญ และแนะนำแนวทางแก้ไขให้ด้วยครับ โดยเน้นที่การเปรียบเทียบหมวดหมู่สินค้าที่ยอดลดลงครับ`;
 
     return p;
 }
@@ -498,30 +651,22 @@ async function main() {
     ui.errorMessage.classList.remove('show');
     
     try {
-        // โหลดข้อมูลยอดขายก่อน (Sheet)
         await fetchSalesData();
         const salesRes = processSalesData(allSalesDataCache, ui.startDate.value, ui.endDate.value);
         latestSalesAnalysis = salesRes;
         renderSalesStats(salesRes);
 
-        // โหลดข้อมูล Ads (API)
         const adsRes = await fetchAdsData(ui.startDate.value, ui.endDate.value);
-        
         if (adsRes.success) {
             latestCampaignData = adsRes.data.campaigns;
             latestAdsTotals = adsRes.totals; 
-            
             renderFunnel(adsRes.totals);
             renderAdsStats(adsRes.totals);
             updateCampaignsTable();
             renderDailySpendChart(adsRes.data.dailySpend);
         } else {
-            console.error("Ads Data Error:", adsRes.error);
             latestAdsTotals = {}; 
-            
-            // แสดง Error ในหน้าจอถ้าโหลด Ads ไม่ได้
-            document.getElementById('adsStatsGrid').innerHTML = `<p style="color:var(--color-negative);">Failed to load Ads data: ${adsRes.error}</p>`;
-            document.getElementById('funnelStatsGrid').innerHTML = '';
+            document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
         }
 
     } catch (err) {
@@ -550,11 +695,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     ui.geminiBtn.addEventListener('click', () => {
         const prompt = generateGeminiPrompt();
-        ui.modalTitle.textContent = '🤖 Prompt สำหรับ Gemini';
+        ui.modalTitle.textContent = '🤖 Prompt วิเคราะห์เปรียบเทียบสำหรับ Gemini';
         ui.modalBody.innerHTML = `
-            <textarea readonly onclick="this.select()">${prompt}</textarea>
+            <textarea readonly onclick="this.select()" style="width:100%; min-height:400px; padding:10px; background:#1a1a2e; color:#00f2fe; border:1px solid #333; font-family:monospace;">${prompt}</textarea>
             <div style="text-align:center; margin-top:10px;">
-                <p style="font-size:0.9em; color:#a0a0b0;">Copy ข้อความด้านบนแล้วนำไปวางใน Google Gemini</p>
+                <p style="font-size:0.9em; color:#a0a0b0;">Copy ข้อความด้านบนแล้วนำไปวางใน Google Gemini เพื่อวิเคราะห์ตัวเลขที่หายไปและเปรียบเทียบเป็น %</p>
             </div>`;
         ui.modal.classList.add('show');
     });
