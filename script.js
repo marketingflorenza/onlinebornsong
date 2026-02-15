@@ -192,7 +192,6 @@ function renderFunnel(adsTotals) {
     const cpl = totalBills > 0 ? spend / totalBills : 0;
     const costPerHead = totalCustomers > 0 ? spend / totalCustomers : 0;
     
-    const contentEfficiency = messaging > 0 ? ((totalBills / messaging) * 100).toFixed(2) : "0.00";
     const bookingToClose = totalBills > 0 ? ((totalCustomers / totalBills) * 100).toFixed(2) : "0.00";
     
     document.getElementById('funnelStatsGrid').innerHTML = `
@@ -234,29 +233,21 @@ function renderAdsStats(totals) {
 
 function updateCampaignsTable() {
     const searchTerm = ui.campaignSearchInput.value.toLowerCase();
-    
-    let filtered = latestCampaignData.filter(c => 
-        c.name.toLowerCase().includes(searchTerm)
-    );
+    let filtered = latestCampaignData.filter(c => c.name.toLowerCase().includes(searchTerm));
 
     filtered.sort((a, b) => {
         let valA = getNestedValue(a, currentSort.key);
         let valB = getNestedValue(b, currentSort.key);
-
         if (valA === undefined || valA === null) valA = -9999999999;
         if (valB === undefined || valB === null) valB = -9999999999;
-
         const numericKeys = ['insights.spend', 'insights.impressions', 'insights.purchases', 'insights.messaging_conversations', 'insights.cpm'];
-        const isNumeric = numericKeys.includes(currentSort.key);
-
-        if (isNumeric) {
+        if (numericKeys.includes(currentSort.key)) {
             valA = parseFloat(valA) || 0;
             valB = parseFloat(valB) || 0;
         } else {
             valA = String(valA).toLowerCase();
             valB = String(valB).toLowerCase();
         }
-
         if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
         if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
         return 0;
@@ -277,7 +268,6 @@ function updateCampaignsTable() {
     document.querySelectorAll('#campaignsTableHeader th').forEach(th => {
         const span = th.querySelector('.sort-icon');
         if(span) span.innerHTML = '⇅';
-        
         if (th.dataset.key === currentSort.key) {
             th.style.color = 'var(--neon-cyan)';
             if(span) span.innerHTML = currentSort.direction === 'asc' ? '▲' : '▼';
@@ -294,13 +284,8 @@ function renderSalesStats(data) {
         <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.totalCustomers)}</div><div class="stat-label">Total Customers</div></div>
     `;
 
-    const p1ToUpP1Rate = data.summary.p1Bills > 0 
-        ? ((data.summary.upp1Bills / data.summary.p1Bills) * 100).toFixed(2) 
-        : "0.00";
-    
-    const p2ToUpP2Rate = data.summary.p2Leads > 0 
-        ? ((data.summary.upp2Bills / data.summary.p2Leads) * 100).toFixed(2) 
-        : "0.00";
+    const p1ToUpP1Rate = data.summary.p1Bills > 0 ? ((data.summary.upp1Bills / data.summary.p1Bills) * 100).toFixed(2) : "0.00";
+    const p2ToUpP2Rate = data.summary.p2Leads > 0 ? ((data.summary.upp2Bills / data.summary.p2Leads) * 100).toFixed(2) : "0.00";
 
     document.getElementById('revenueContainer').innerHTML = `
         <div style="margin-bottom: 10px; color: var(--neon-cyan); font-weight: 600;">ยอดขายแยกตามประเภท (THB)</div>
@@ -314,41 +299,23 @@ function renderSalesStats(data) {
         <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.p1Bills)}</div><div class="stat-label">P1 Bills</div></div>
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp1Bills)}</div><div class="stat-label">UP P1 Bills</div></div>
-            <div class="stat-card" style="border: 1px solid #ec4899; background: rgba(236, 72, 153, 0.05);">
-                <div class="stat-number" style="color:#ec4899">${p1ToUpP1Rate}%</div>
-                <div class="stat-label">P1 ➔ UP P1 Rate</div>
-            </div>
-            
+            <div class="stat-card" style="border: 1px solid #ec4899; background: rgba(236, 72, 153, 0.05);"><div class="stat-number" style="color:#ec4899">${p1ToUpP1Rate}%</div><div class="stat-label">P1 ➔ UP P1 Rate</div></div>
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.p2Leads)}</div><div class="stat-label">P2 Leads</div></div>
             <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp2Bills)}</div><div class="stat-label">UP P2 Bills</div></div>
-            <div class="stat-card" style="border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05);">
-                <div class="stat-number" style="color:#f59e0b">${p2ToUpP2Rate}%</div>
-                <div class="stat-label">P2 ➔ UP P2 Rate</div>
-            </div>
+            <div class="stat-card" style="border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05);"><div class="stat-number" style="color:#f59e0b">${p2ToUpP2Rate}%</div><div class="stat-label">P2 ➔ UP P2 Rate</div></div>
         </div>
     `;
 
     const sortedChannels = Object.entries(data.channels).sort((a,b) => b[1].revenue - a[1].revenue);
     document.getElementById('channelTableBody').innerHTML = sortedChannels.map(([name, val]) => `
         <tr class="clickable-row" onclick="showChannelDetails('${name.replace(/'/g, "\\'")}')">
-            <td><strong>${name}</strong></td>
-            <td>${formatNumber(val.p1)}</td>
-            <td>${formatNumber(val.p2)}</td>
-            <td>${formatNumber(val.upP2)}</td>
-            <td class="revenue-cell">${formatCurrency(val.revenue)}</td>
-        </tr>
-    `).join('');
+            <td><strong>${name}</strong></td><td>${formatNumber(val.p1)}</td><td>${formatNumber(val.p2)}</td><td>${formatNumber(val.upP2)}</td><td class="revenue-cell">${formatCurrency(val.revenue)}</td>
+        </tr>`).join('');
 
     document.getElementById('categoryTableBody').innerHTML = data.categories.map((c, i) => `
         <tr class="clickable-row" onclick="showCategoryDetails('${c.name.replace(/'/g, "\\'")}')">
-            <td style="text-align:center;"><span class="type-badge">${i+1}</span></td>
-            <td><strong>${c.name}</strong></td>
-            <td>${formatNumber(c.p1B)}</td>
-            <td>${formatNumber(c.up1B)}</td>
-            <td>${formatNumber(c.up2B)}</td>
-            <td class="revenue-cell">${formatCurrency(c.total)}</td>
-        </tr>
-    `).join('');
+            <td style="text-align:center;"><span class="type-badge">${i+1}</span></td><td><strong>${c.name}</strong></td><td>${formatNumber(c.p1B)}</td><td>${formatNumber(c.up1B)}</td><td>${formatNumber(c.up2B)}</td><td class="revenue-cell">${formatCurrency(c.total)}</td>
+        </tr>`).join('');
 
     updateCategoryChart(data.categories);
 }
@@ -359,23 +326,8 @@ function updateCategoryChart(cats) {
     const top15 = cats.slice(0, 15);
     charts.bar = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels: top15.map(c => c.name),
-            datasets: [{ 
-                label: 'Revenue (THB)', 
-                data: top15.map(c => c.total), 
-                backgroundColor: '#00f2fe', 
-                borderRadius: 5 
-            }]
-        },
-        options: { 
-            responsive: true, maintainAspectRatio: false, 
-            scales: { 
-                y: { ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } }, 
-                x: { ticks: { color: '#a0a0b0' }, grid: { display: false } } 
-            },
-            plugins: { legend: { display: false } }
-        }
+        data: { labels: top15.map(c => c.name), datasets: [{ label: 'Revenue (THB)', data: top15.map(c => c.total), backgroundColor: '#00f2fe', borderRadius: 5 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } }, x: { ticks: { color: '#a0a0b0' }, grid: { display: false } } }, plugins: { legend: { display: false } } }
     });
 }
 
@@ -384,28 +336,8 @@ function renderDailySpendChart(dailyData) {
     if (charts.line) charts.line.destroy();
     charts.line = new Chart(ctx, {
         type: 'line',
-        data: {
-            labels: dailyData.map(d => {
-                const date = new Date(d.date);
-                return `${date.getDate()}/${date.getMonth()+1}`;
-            }),
-            datasets: [{
-                label: 'Ad Spend (THB)',
-                data: dailyData.map(d => d.spend),
-                borderColor: '#ff00f2',
-                backgroundColor: 'rgba(255, 0, 242, 0.1)',
-                fill: true,
-                tension: 0.3
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true, ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } },
-                x: { ticks: { color: '#a0a0b0' } }
-            },
-            plugins: { legend: { display: false } }
-        }
+        data: { labels: dailyData.map(d => { const date = new Date(d.date); return `${date.getDate()}/${date.getMonth()+1}`; }), datasets: [{ label: 'Ad Spend (THB)', data: dailyData.map(d => d.spend), borderColor: '#ff00f2', backgroundColor: 'rgba(255, 0, 242, 0.1)', fill: true, tension: 0.3 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } }, x: { ticks: { color: '#a0a0b0' } } }, plugins: { legend: { display: false } } }
     });
 }
 
@@ -415,95 +347,27 @@ function showCategoryDetails(categoryName) {
         const rowCats = String(r[C.CATEGORIES] || '').split(',').map(s => s.trim());
         return rowCats.includes(categoryName);
     });
-
-    const groups = {
-        p1: filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0),
-        up1: filtered.filter(r => toNumber(r[C.UP_P1]) > 0),
-        up2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0)
-    };
-
+    const groups = { p1: filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0), up1: filtered.filter(r => toNumber(r[C.UP_P1]) > 0), up2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0) };
     ui.modalTitle.textContent = `หมวดหมู่: ${categoryName}`;
     let html = '';
-
-    if (groups.p1.length > 0) {
-        html += `<div class="type-section"><div class="type-title">📦 P1 Bills <span class="type-badge">${groups.p1.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Channel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>${groups.p1.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.CHANNEL] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td></tr>`).join('')}</tbody></table></div></div>`;
-    }
-
-    if (groups.up1.length > 0) {
-        html += `<div class="type-section"><div class="type-title">🚀 UP P1 Bills (Upgrade) <span class="type-badge">${groups.up1.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Upgrade Item</th><th>Original P1 Item</th><th>Original P1 Amt</th><th>Upgrade Amt</th></tr></thead><tbody>${groups.up1.map(r => {
-            const custName = String(r[C.CUSTOMER] || '').trim();
-            const custPhone = String(r[C.PHONE] || '').trim();
-            const history = allSalesDataCache.find(h => {
-                const hName = String(h[C.CUSTOMER] || '').trim();
-                const hPhone = String(h[C.PHONE] || '').trim();
-                const isSameUser = (custPhone && hPhone === custPhone) || (hName === custName);
-                return isSameUser && toNumber(h[C.P1]) > 0;
-            });
-            const p1Val = history ? toNumber(history[C.P1]) : 0;
-            const p1Interest = history ? history[C.INTEREST] : 'Not Found';
-            return `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td><span class="context-label">Old Interest</span>${p1Interest}</td><td class="context-cell">${formatCurrency(p1Val)}</td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P1]))}</td></tr>`;
-        }).join('')}</tbody></table></div></div>`;
-    }
-
-    if (groups.up2.length > 0) {
-        html += `<div class="type-section"><div class="type-title">💎 UP P2 Bills <span class="type-badge">${groups.up2.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Upgrade Interest</th><th>Original P2 Interest (Col F)</th><th>Revenue</th></tr></thead><tbody>${groups.up2.map(r => {
-            const custName = String(r[C.CUSTOMER] || '').trim();
-            const custPhone = String(r[C.PHONE] || '').trim();
-            const history = allSalesDataCache.find(h => {
-                const hName = String(h[C.CUSTOMER] || '').trim();
-                const hPhone = String(h[C.PHONE] || '').trim();
-                const isSameUser = (custPhone && hPhone === custPhone) || (hName === custName);
-                const isP2Lead = h[C.P2] && String(h[C.P2]).trim() !== '';
-                return isSameUser && isP2Lead;
-            });
-            const p2Interest = history ? history[C.INTEREST] : 'Not Found';
-            const p2Date = history ? formatDate(parseGvizDate(history[C.DATE])) : '';
-            return `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td><span class="context-label">Lead Date: ${p2Date}</span>${p2Interest}</td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td></tr>`;
-        }).join('')}</tbody></table></div></div>`;
-    }
-
+    if (groups.p1.length > 0) html += `<div class="type-section"><div class="type-title">📦 P1 Bills <span class="type-badge">${groups.p1.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Channel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>${groups.p1.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.CHANNEL] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td></tr>`).join('')}</tbody></table></div></div>`;
+    if (groups.up1.length > 0) html += `<div class="type-section"><div class="type-title">🚀 UP P1 Bills <span class="type-badge">${groups.up1.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Upgrade Item</th><th>Original P1</th><th>Original P1 Amt</th><th>Upgrade Amt</th></tr></thead><tbody>${groups.up1.map(r => { const custName = String(r[C.CUSTOMER] || '').trim(); const custPhone = String(r[C.PHONE] || '').trim(); const history = allSalesDataCache.find(h => { const hName = String(h[C.CUSTOMER] || '').trim(); const hPhone = String(h[C.PHONE] || '').trim(); return ((custPhone && hPhone === custPhone) || (hName === custName)) && toNumber(h[C.P1]) > 0; }); const p1Val = history ? toNumber(history[C.P1]) : 0; const p1Interest = history ? history[C.INTEREST] : 'Not Found'; return `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td><span class="context-label">Old Interest</span>${p1Interest}</td><td class="context-cell">${formatCurrency(p1Val)}</td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P1]))}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+    if (groups.up2.length > 0) html += `<div class="type-section"><div class="type-title">💎 UP P2 Bills <span class="type-badge">${groups.up2.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Upgrade Interest</th><th>Original P2</th><th>Revenue</th></tr></thead><tbody>${groups.up2.map(r => { const custName = String(r[C.CUSTOMER] || '').trim(); const custPhone = String(r[C.PHONE] || '').trim(); const history = allSalesDataCache.find(h => { const hName = String(h[C.CUSTOMER] || '').trim(); const hPhone = String(h[C.PHONE] || '').trim(); return ((custPhone && hPhone === custPhone) || (hName === custName)) && h[C.P2] && String(h[C.P2]).trim() !== ''; }); const p2Interest = history ? history[C.INTEREST] : 'Not Found'; const p2Date = history ? formatDate(parseGvizDate(history[C.DATE])) : ''; return `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td><span class="context-label">Lead Date: ${p2Date}</span>${p2Interest}</td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td></tr>`; }).join('')}</tbody></table></div></div>`;
     if (html === '') html = '<p style="text-align:center; padding: 20px;">No transaction details found.</p>';
-    ui.modalBody.innerHTML = html;
-    ui.modal.classList.add('show');
+    ui.modalBody.innerHTML = html; ui.modal.classList.add('show');
 }
 
 function showChannelDetails(channelName) {
     const C = CONFIG.COLUMN_NAMES;
     const filtered = latestSalesAnalysis.filteredRows.filter(r => (r[C.CHANNEL] || 'ไม่ระบุ') === channelName);
-
-    const groups = {
-        p1: filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0),
-        p2: filtered.filter(r => r[C.P2] && String(r[C.P2]).trim() !== ''),
-        upP2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0)
-    };
-
+    const groups = { p1: filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0), p2: filtered.filter(r => r[C.P2] && String(r[C.P2]).trim() !== ''), upP2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0) };
     ui.modalTitle.textContent = `ช่องทาง: ${channelName}`;
     let html = '';
-
-    if (groups.p1.length > 0) {
-        html += `<div class="type-section"><div class="type-title">📦 P1 Bills (ลูกค้าใหม่/ซื้อทันที) <span class="type-badge">${groups.p1.length}</span></div>
-        <div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>
-        ${groups.p1.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td></tr>`).join('')}
-        </tbody></table></div></div>`;
-    }
-
-    if (groups.p2.length > 0) {
-        html += `<div class="type-section"><div class="type-title">📋 P2 Leads (รายชื่อสนใจ) <span class="type-badge">${groups.p2.length}</span></div>
-        <div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th></tr></thead><tbody>
-        ${groups.p2.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.P2] || '-'}</small></td></tr>`).join('')}
-        </tbody></table></div></div>`;
-    }
-
-    if (groups.upP2.length > 0) {
-        html += `<div class="type-section"><div class="type-title">💎 UP P2 Bills (ปิดการขายจาก Lead) <span class="type-badge">${groups.upP2.length}</span></div>
-        <div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>
-        ${groups.upP2.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td></tr>`).join('')}
-        </tbody></table></div></div>`;
-    }
-
-    if (html === '') html = '<p style="text-align:center; padding: 20px;">No transaction details found for this channel.</p>';
-    ui.modalBody.innerHTML = html;
-    ui.modal.classList.add('show');
+    if (groups.p1.length > 0) html += `<div class="type-section"><div class="type-title">📦 P1 Bills <span class="type-badge">${groups.p1.length}</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>${groups.p1.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td></tr>`).join('')}</tbody></table></div></div>`;
+    if (groups.p2.length > 0) html += `<div class="type-section"><div class="type-title">📋 P2 Leads <span class="type-badge">${groups.p2.length}</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th></tr></thead><tbody>${groups.p2.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.P2] || '-'}</small></td></tr>`).join('')}</tbody></table></div></div>`;
+    if (groups.upP2.length > 0) html += `<div class="type-section"><div class="type-title">💎 UP P2 Bills <span class="type-badge">${groups.upP2.length}</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Tel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>${groups.upP2.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.PHONE] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td></tr>`).join('')}</tbody></table></div></div>`;
+    if (html === '') html = '<p style="text-align:center; padding: 20px;">No transaction details found.</p>';
+    ui.modalBody.innerHTML = html; ui.modal.classList.add('show');
 }
 
 function showAdDetails(campaignId) {
@@ -511,31 +375,12 @@ function showAdDetails(campaignId) {
     if (!campaign) return;
     ui.modalTitle.textContent = `Ads in: ${campaign.name}`;
     const ads = campaign.ads || [];
-    
-    if (ads.length === 0) {
-        ui.modalBody.innerHTML = '<p style="text-align:center;">No ads found.</p>';
-    } else {
-        ui.modalBody.innerHTML = ads.sort((a,b) => b.insights.spend - a.insights.spend).map(ad => `
-            <div class="ad-card">
-                <img src="${ad.thumbnail_url}" onerror="this.src='https://placehold.co/80x80?text=No+Img'">
-                <div style="flex:1;">
-                    <h4>${ad.name}</h4>
-                    <div style="font-size:0.9em; color:#a0a0b0; display:grid; grid-template-columns: 1fr 1fr; margin-top:5px;">
-                        <div>Spend: <span style="color:white;">${formatCurrency(ad.insights.spend)}</span></div>
-                        <div>Purchases: <span style="color:white;">${formatNumber(ad.insights.purchases)}</span></div>
-                        <div>Messaging: <span style="color:white;">${formatNumber(ad.insights.messaging_conversations)}</span></div>
-                        <div>Impressions: <span style="color:white;">${formatNumber(ad.insights.impressions)}</span></div>
-                        <div>CPM: <span style="color:white;">${formatCurrency(ad.insights.cpm)}</span></div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-    }
+    if (ads.length === 0) { ui.modalBody.innerHTML = '<p style="text-align:center;">No ads found.</p>'; } else { ui.modalBody.innerHTML = ads.sort((a,b) => b.insights.spend - a.insights.spend).map(ad => `<div class="ad-card"><img src="${ad.thumbnail_url}" onerror="this.src='https://placehold.co/80x80?text=No+Img'"><div style="flex:1;"><h4>${ad.name}</h4><div style="font-size:0.9em; color:#a0a0b0; display:grid; grid-template-columns: 1fr 1fr; margin-top:5px;"><div>Spend: <span style="color:white;">${formatCurrency(ad.insights.spend)}</span></div><div>Purchases: <span style="color:white;">${formatNumber(ad.insights.purchases)}</span></div><div>Messaging: <span style="color:white;">${formatNumber(ad.insights.messaging_conversations)}</span></div><div>Impressions: <span style="color:white;">${formatNumber(ad.insights.impressions)}</span></div><div>CPM: <span style="color:white;">${formatCurrency(ad.insights.cpm)}</span></div></div></div></div>`).join(''); }
     ui.modal.classList.add('show');
 }
 
 // ================================================================
-// 8. GEMINI PROMPT GENERATION (PRO VERSION WITH COMPARE & ALL TOP 5)
+// 8. GEMINI PROMPT GENERATION (UPDATED WITH TOTAL REVENUE & ALL TOP 5)
 // ================================================================
 
 function getCompareData() {
@@ -543,22 +388,10 @@ function getCompareData() {
     const end = new Date(ui.endDate.value);
     const diffTime = Math.abs(end - start);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-    const prevEnd = new Date(start);
-    prevEnd.setDate(prevEnd.getDate() - 1);
-    const prevStart = new Date(prevEnd);
-    prevStart.setDate(prevStart.getDate() - diffDays + 1);
-
-    const prevData = processSalesData(
-        allSalesDataCache, 
-        prevStart.toISOString().split('T')[0], 
-        prevEnd.toISOString().split('T')[0]
-    );
-
-    return {
-        period: `${formatDate(prevStart)} - ${formatDate(prevEnd)}`,
-        data: prevData
-    };
+    const prevEnd = new Date(start); prevEnd.setDate(prevEnd.getDate() - 1);
+    const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - diffDays + 1);
+    const prevData = processSalesData(allSalesDataCache, prevStart.toISOString().split('T')[0], prevEnd.toISOString().split('T')[0]);
+    return { period: `${formatDate(prevStart)} - ${formatDate(prevEnd)}`, data: prevData };
 }
 
 function generateGeminiPrompt() {
@@ -610,36 +443,33 @@ function generateGeminiPrompt() {
     p += `Messaging: ${num(messaging)}\n`;
     p += `Cost Per Booking: ${f(cpb)}\n`;
     p += `Cost Per Head: ${f(cph)}\n`;
-    p += `Booking → Close (Customers/Bills): ${bookingClose}%\n\n`;
+    p += `Booking → Close: ${bookingClose}%\n\n`;
 
-    p += `--- [เปรียบเทียบตัวเลขที่เปลี่ยนแปลง (Performance Compare)] ---\n`;
+    p += `--- [เปรียบเทียบตัวเลขที่เปลี่ยนแปลง] ---\n`;
     p += `1. ยอดขายรวม: ${calcDiffCurr(s.totalRevenue, ps.totalRevenue)}\n`;
     p += `2. จำนวนบิล: ${calcDiff(s.totalBills, ps.totalBills)}\n`;
-    p += `3. จำนวนลูกค้า: ${calcDiff(s.totalCustomers, ps.totalCustomers)}\n`;
-    p += `4. P1 Revenue: ${calcDiffCurr(s.p1Revenue, ps.p1Revenue)}\n`;
-    p += `5. UP P1 Revenue: ${calcDiffCurr(s.upp1Revenue, ps.upp1Revenue)}\n`;
-    p += `6. UP P2 Revenue: ${calcDiffCurr(s.upp2Revenue, ps.upp2Revenue)}\n\n`;
+    p += `3. จำนวนลูกค้า: ${calcDiff(s.totalCustomers, ps.totalCustomers)}\n\n`;
 
     p += `--- [ข้อมูลช่วงเวลาปัจจุบัน (รายละเอียด)] ---\n`;
-    p += `* P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
-    p += `* P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n`;
+    p += `* Total Revenue (รายได้รวม): ${f(s.totalRevenue)}\n`; // <--- เพิ่มตามคำขอ
     p += `* ยอดขาย P1: ${f(s.p1Revenue)} (${num(s.p1Bills)} บิล)\n`;
     p += `* ยอดอัพ P1: ${f(s.upp1Revenue)} (${num(s.upp1Bills)} บิล)\n`;
     p += `* ยอดอัพ P2: ${f(s.upp2Revenue)} (${num(s.upp2Bills)} บิล)\n`;
+    p += `* P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
+    p += `* P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n`;
     p += `* P2 Leads: ${num(s.p2Leads)} Leads\n\n`;
 
-    p += `* 5 หมวดหมู่รายได้รวมสูงสุด:\n` + getTop5('total').map(c => `  - ${c.name}: ${f(c.total)}`).join('\n') + `\n\n`;
-    p += `* 5 หมวดหมู่ P1 ขายดี (บิลเยอะสุด):\n` + getTop5('p1B').map(c => `  - ${c.name}: ${num(c.p1B)} บิล`).join('\n') + `\n\n`;
-    p += `* 5 หมวดหมู่ UP P1 ขายดี (บิลเยอะสุด):\n` + getTop5('up1B').map(c => `  - ${c.name}: ${num(c.up1B)} บิล`).join('\n') + `\n\n`;
-    p += `* 5 หมวดหมู่ UP P2 ขายดี (บิลเยอะสุด):\n` + getTop5('up2B').map(c => `  - ${c.name}: ${num(c.up2B)} บิล`).join('\n') + `\n\n`;
+    p += `* 5 อันดับหมวดหมู่ขายดีทั้งหมด (รายได้รวมสูงสุด):\n` + getTop5('total').map(c => `  - ${c.name}: ${f(c.total)}`).join('\n') + `\n\n`;
+    p += `* 5 อันดับหมวดหมู่ P1 ขายดี (ลูกค้าใหม่/ซื้อทันที):\n` + getTop5('p1B').map(c => `  - ${c.name}: ${num(c.p1B)} บิล`).join('\n') + `\n\n`;
+    p += `* 5 อันดับหมวดหมู่ UP P1 ขายดี (อัพเกรดจาก P1):\n` + getTop5('up1B').map(c => `  - ${c.name}: ${num(c.up1B)} บิล`).join('\n') + `\n\n`;
+    p += `* 5 อันดับหมวดหมู่ UP P2 ขายดี (ปิดการขายจาก Lead):\n` + getTop5('up2B').map(c => `  - ${c.name}: ${num(c.up2B)} บิล`).join('\n') + `\n\n`;
 
     p += `--- [วิเคราะห์ตามช่องทาง] ---\n`;
     Object.entries(latestSalesAnalysis.channels).sort((a,b) => b[1].revenue - a[1].revenue).forEach(([name, val]) => {
         p += `* ${name}: บิล P1 ${val.p1}, UP P2 ${val.upP2}, ยอดขายรวม ${f(val.revenue)}\n`;
     });
 
-    p += `\nกรุณาวิเคราะห์จุดที่ "ตัวเลขหายไป" หรือลดลงอย่างมีนัยสำคัญ และแนะนำแนวทางแก้ไขให้ด้วยครับ โดยเน้นที่การเปรียบเทียบหมวดหมู่สินค้าที่ยอดลดลงครับ`;
-
+    p += `\nกรุณาวิเคราะห์แนวโน้ม และแนะนำแนวทางแก้ไขกรณีตัวเลขลดลง โดยเน้นเปรียบเทียบหมวดหมู่สินค้าครับ`;
     return p;
 }
 
@@ -647,79 +477,43 @@ function generateGeminiPrompt() {
 // 9. MAIN EXECUTION
 // ================================================================
 async function main() {
-    ui.loading.classList.add('show');
-    ui.errorMessage.classList.remove('show');
-    
+    ui.loading.classList.add('show'); ui.errorMessage.classList.remove('show');
     try {
         await fetchSalesData();
         const salesRes = processSalesData(allSalesDataCache, ui.startDate.value, ui.endDate.value);
-        latestSalesAnalysis = salesRes;
-        renderSalesStats(salesRes);
-
+        latestSalesAnalysis = salesRes; renderSalesStats(salesRes);
         const adsRes = await fetchAdsData(ui.startDate.value, ui.endDate.value);
         if (adsRes.success) {
-            latestCampaignData = adsRes.data.campaigns;
-            latestAdsTotals = adsRes.totals; 
-            renderFunnel(adsRes.totals);
-            renderAdsStats(adsRes.totals);
-            updateCampaignsTable();
-            renderDailySpendChart(adsRes.data.dailySpend);
+            latestCampaignData = adsRes.data.campaigns; latestAdsTotals = adsRes.totals;
+            renderFunnel(adsRes.totals); renderAdsStats(adsRes.totals); updateCampaignsTable(); renderDailySpendChart(adsRes.data.dailySpend);
         } else {
-            latestAdsTotals = {}; 
-            document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
+            latestAdsTotals = {}; document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
         }
-
     } catch (err) {
-        console.error(err);
-        ui.errorMessage.textContent = "Error: " + err.message;
-        ui.errorMessage.classList.add('show');
-    } finally {
-        ui.loading.classList.remove('show');
-    }
+        console.error(err); ui.errorMessage.textContent = "Error: " + err.message; ui.errorMessage.classList.add('show');
+    } finally { ui.loading.classList.remove('show'); }
 }
 
 // ================================================================
 // 10. EVENTS
 // ================================================================
 document.addEventListener('DOMContentLoaded', () => {
-    const today = new Date();
-    const startMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    
-    ui.endDate.value = today.toISOString().split('T')[0];
-    ui.startDate.value = startMonth.toISOString().split('T')[0];
-
+    const today = new Date(); const startMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    ui.endDate.value = today.toISOString().split('T')[0]; ui.startDate.value = startMonth.toISOString().split('T')[0];
     main();
-
-    ui.refreshBtn.addEventListener('click', main);
-    ui.modalCloseBtn.addEventListener('click', () => ui.modal.classList.remove('show'));
-    
+    ui.refreshBtn.addEventListener('click', main); ui.modalCloseBtn.addEventListener('click', () => ui.modal.classList.remove('show'));
     ui.geminiBtn.addEventListener('click', () => {
         const prompt = generateGeminiPrompt();
         ui.modalTitle.textContent = '🤖 Prompt วิเคราะห์เปรียบเทียบสำหรับ Gemini';
-        ui.modalBody.innerHTML = `
-            <textarea readonly onclick="this.select()" style="width:100%; min-height:400px; padding:10px; background:#1a1a2e; color:#00f2fe; border:1px solid #333; font-family:monospace;">${prompt}</textarea>
-            <div style="text-align:center; margin-top:10px;">
-                <p style="font-size:0.9em; color:#a0a0b0;">Copy ข้อความด้านบนแล้วนำไปวางใน Google Gemini เพื่อวิเคราะห์ตัวเลขที่หายไปและเปรียบเทียบเป็น %</p>
-            </div>`;
+        ui.modalBody.innerHTML = `<textarea readonly onclick="this.select()" style="width:100%; min-height:400px; padding:10px; background:#1a1a2e; color:#00f2fe; border:1px solid #333; font-family:monospace;">${prompt}</textarea><div style="text-align:center; margin-top:10px;"><p style="font-size:0.9em; color:#a0a0b0;">Copy ข้อความเพื่อนำไปวางใน Gemini</p></div>`;
         ui.modal.classList.add('show');
     });
-
     if (ui.campaignsTableHeader) {
         ui.campaignsTableHeader.addEventListener('click', (e) => {
-            const th = e.target.closest('th');
-            if (!th || !th.dataset.key) return;
-            const key = th.dataset.key;
-            if (currentSort.key === key) {
-                currentSort.direction = currentSort.direction === 'desc' ? 'asc' : 'desc';
-            } else {
-                currentSort.key = key;
-                currentSort.direction = 'desc';
-            }
+            const th = e.target.closest('th'); if (!th || !th.dataset.key) return; const key = th.dataset.key;
+            if (currentSort.key === key) { currentSort.direction = currentSort.direction === 'desc' ? 'asc' : 'desc'; } else { currentSort.key = key; currentSort.direction = 'desc'; }
             updateCampaignsTable();
         });
     }
-
-    document.getElementById('campaignSearchInput').addEventListener('input', () => {
-        updateCampaignsTable();
-    });
+    document.getElementById('campaignSearchInput').addEventListener('input', () => { updateCampaignsTable(); });
 });
