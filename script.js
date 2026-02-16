@@ -105,6 +105,11 @@ function processSalesData(rows, startDate, endDate) {
     const startD = new Date(startDate + 'T00:00:00');
     const endD = new Date(endDate + 'T23:59:59');
 
+    const historyData = rows.filter(r => {
+        const d = parseGvizDate(r[C.DATE]);
+        return d && d < startD;
+    });
+
     const filteredRows = rows.filter(r => {
         const d = parseGvizDate(r[C.DATE]);
         return d && d >= startD && d <= endD;
@@ -114,19 +119,28 @@ function processSalesData(rows, startDate, endDate) {
         totalBills: 0, totalRevenue: 0, totalCustomers: 0,
         p1Revenue: 0, upp1Revenue: 0, upp2Revenue: 0,
         p1Bills: 0, upp1Bills: 0, upp2Bills: 0, p2Leads: 0,
-        newCustomers: 0 
+        newCustomersCount: 0, repeatCustomersCount: 0 
     };
+
     let channels = {};
     let categories = {};
+    
+    const processedNewCust = new Set();
+    const processedRepeatCust = new Set();
 
     filteredRows.forEach(row => {
         const p1 = toNumber(row[C.P1]);
         const up1 = toNumber(row[C.UP_P1]);
         const up2 = toNumber(row[C.UP_P2]);
+        const p2Str = String(row[C.P2] || '').trim();
         const rev = p1 + up1 + up2;
         const hasRevenue = rev > 0;
-        
-        if (hasRevenue || row[C.P2]) {
+
+        const custName = String(row[C.CUSTOMER] || '').trim();
+        const custPhone = String(row[C.PHONE] || '').trim();
+        const custKey = `${custName}|${custPhone}`;
+
+        if (hasRevenue || p2Str !== '') {
             summary.totalRevenue += rev;
             summary.p1Revenue += p1;
             summary.upp1Revenue += up1;
@@ -135,33 +149,46 @@ function processSalesData(rows, startDate, endDate) {
             if (p1 > 0) summary.p1Bills++;
             if (up1 > 0) summary.upp1Bills++;
             if (up2 > 0) summary.upp2Bills++;
-            if (row[C.P2]) summary.p2Leads++;
+            if (p2Str !== '') summary.p2Leads++;
 
             if (hasRevenue) summary.totalBills++;
             if (p1 > 0 || up2 > 0) summary.totalCustomers++;
-            if (isNewCustomer(row)) summary.newCustomers++;
+
+            if (p1 > 0 || up2 > 0) {
+                const isHistoricallyExisting = historyData.some(h => {
+                    const hName = String(h[C.CUSTOMER] || '').trim();
+                    const hPhone = String(h[C.PHONE] || '').trim();
+                    return (custName !== '' && hName === custName) || (custPhone !== '' && hPhone === custPhone);
+                });
+
+                if (!isHistoricallyExisting) {
+                    if (!processedNewCust.has(custKey)) {
+                        summary.newCustomersCount++;
+                        processedNewCust.add(custKey);
+                    }
+                } else {
+                    if (!processedRepeatCust.has(custKey)) {
+                        summary.repeatCustomersCount++;
+                        processedRepeatCust.add(custKey);
+                    }
+                }
+            }
 
             const ch = row[C.CHANNEL] || 'ไม่ระบุ';
             if (!channels[ch]) channels[ch] = { p1: 0, p2: 0, upP2: 0, newCust: 0, revenue: 0 };
             if (p1 > 0 && up1 === 0) channels[ch].p1++;
-            if (row[C.P2]) channels[ch].p2++;
+            if (p2Str !== '') channels[ch].p2++;
             if (up2 > 0) channels[ch].upP2++;
-            if (isNewCustomer(row)) channels[ch].newCust++;
             channels[ch].revenue += rev;
 
             const cats = String(row[C.CATEGORIES] || '').split(',').map(s => s.trim()).filter(s => s && s !== '999');
             cats.forEach(cat => {
-                if (!categories[cat]) categories[cat] = { 
-                    name: cat, total: 0, 
-                    p1B: 0, up1B: 0, up2B: 0,
-                    p1Val: 0, up1Val: 0, up2Val: 0
-                };
+                if (!categories[cat]) categories[cat] = { name: cat, total: 0, p1B: 0, up1B: 0, up2B: 0, p1Val: 0, up1Val: 0, up2Val: 0 };
                 const count = cats.length || 1;
                 categories[cat].total += rev / count;
                 categories[cat].p1Val += p1 / count;
                 categories[cat].up1Val += up1 / count;
                 categories[cat].up2Val += up2 / count;
-
                 if (p1 > 0) categories[cat].p1B++;
                 if (up1 > 0) categories[cat].up1B++;
                 if (up2 > 0) categories[cat].up2B++;
@@ -169,12 +196,7 @@ function processSalesData(rows, startDate, endDate) {
         }
     });
 
-    return { 
-        summary, 
-        channels, 
-        categories: Object.values(categories).sort((a,b) => b.total - a.total),
-        filteredRows 
-    };
+    return { summary, channels, categories: Object.values(categories).sort((a,b) => b.total - a.total), filteredRows };
 }
 
 // ================================================================
@@ -182,16 +204,15 @@ function processSalesData(rows, startDate, endDate) {
 // ================================================================
 
 function renderFunnel(adsTotals) {
+    const s = latestSalesAnalysis.summary;
     const spend = adsTotals.spend || 0;
-    const rev = latestSalesAnalysis.summary.totalRevenue || 0;
-    const totalBills = latestSalesAnalysis.summary.totalBills || 0;
-    const totalCustomers = latestSalesAnalysis.summary.totalCustomers || 0;
-    const messaging = adsTotals.messaging_conversations || 0;
+    const rev = s.totalRevenue || 0;
+    const totalBills = s.totalBills || 0;
+    const totalCustomers = s.totalCustomers || 0;
     
     const roas = spend > 0 ? rev / spend : 0;
     const cpl = totalBills > 0 ? spend / totalBills : 0;
     const costPerHead = totalCustomers > 0 ? spend / totalCustomers : 0;
-    
     const bookingToClose = totalBills > 0 ? ((totalCustomers / totalBills) * 100).toFixed(2) : "0.00";
     
     document.getElementById('funnelStatsGrid').innerHTML = `
@@ -278,30 +299,39 @@ function updateCampaignsTable() {
 }
 
 function renderSalesStats(data) {
+    const s = data.summary;
     document.getElementById('salesOverviewStatsGrid').innerHTML = `
-        <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.totalBills)}</div><div class="stat-label">Total Bills</div></div>
-        <div class="stat-card"><div class="stat-number">${formatCurrency(data.summary.totalRevenue)}</div><div class="stat-label">Total Revenue</div></div>
-        <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.totalCustomers)}</div><div class="stat-label">Total Customers</div></div>
+        <div class="stat-card"><div class="stat-number">${formatNumber(s.totalBills)}</div><div class="stat-label">Total Bills</div></div>
+        <div class="stat-card"><div class="stat-number">${formatCurrency(s.totalRevenue)}</div><div class="stat-label">Total Revenue</div></div>
+        <div class="stat-card"><div class="stat-number">${formatNumber(s.totalCustomers)}</div><div class="stat-label">Total Customers</div></div>
+        <div class="stat-card" style="border: 1px solid #34d399; background: rgba(52, 211, 153, 0.05);">
+            <div class="stat-number" style="color: #34d399;">${formatNumber(s.newCustomersCount)}</div>
+            <div class="stat-label">New Customers (P1/UP P2)</div>
+        </div>
+        <div class="stat-card" style="border: 1px solid #a855f7; background: rgba(168, 85, 247, 0.05);">
+            <div class="stat-number" style="color: #a855f7;">${formatNumber(s.repeatCustomersCount)}</div>
+            <div class="stat-label">Repeat Customers (P1/UP P2)</div>
+        </div>
     `;
 
-    const p1ToUpP1Rate = data.summary.p1Bills > 0 ? ((data.summary.upp1Bills / data.summary.p1Bills) * 100).toFixed(2) : "0.00";
-    const p2ToUpP2Rate = data.summary.p2Leads > 0 ? ((data.summary.upp2Bills / data.summary.p2Leads) * 100).toFixed(2) : "0.00";
+    const p1ToUpP1Rate = s.p1Bills > 0 ? ((s.upp1Bills / s.p1Bills) * 100).toFixed(2) : "0.00";
+    const p2ToUpP2Rate = s.p2Leads > 0 ? ((s.upp2Bills / s.p2Leads) * 100).toFixed(2) : "0.00";
 
     document.getElementById('revenueContainer').innerHTML = `
         <div style="margin-bottom: 10px; color: var(--neon-cyan); font-weight: 600;">ยอดขายแยกตามประเภท (THB)</div>
         <div class="stats-grid">
-            <div class="stat-card"><div class="stat-number" style="color:#34d399">${formatCurrency(data.summary.p1Revenue)}</div><div class="stat-label">P1 Revenue</div></div>
-            <div class="stat-card"><div class="stat-number" style="color:#ec4899">${formatCurrency(data.summary.upp1Revenue)}</div><div class="stat-label">UP P1 Revenue</div></div>
-            <div class="stat-card"><div class="stat-number" style="color:#f59e0b">${formatCurrency(data.summary.upp2Revenue)}</div><div class="stat-label">UP P2 Revenue</div></div>
+            <div class="stat-card"><div class="stat-number" style="color:#34d399">${formatCurrency(s.p1Revenue)}</div><div class="stat-label">P1 Revenue</div></div>
+            <div class="stat-card"><div class="stat-number" style="color:#ec4899">${formatCurrency(s.upp1Revenue)}</div><div class="stat-label">UP P1 Revenue</div></div>
+            <div class="stat-card"><div class="stat-number" style="color:#f59e0b">${formatCurrency(s.upp2Revenue)}</div><div class="stat-label">UP P2 Revenue</div></div>
         </div>
         
         <div style="margin-bottom: 10px; margin-top: 20px; color: var(--neon-cyan); font-weight: 600;">วิเคราะห์อัตราส่วนการอัพเกรด (Success Rate)</div>
         <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
-            <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.p1Bills)}</div><div class="stat-label">P1 Bills</div></div>
-            <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp1Bills)}</div><div class="stat-label">UP P1 Bills</div></div>
+            <div class="stat-card"><div class="stat-number">${formatNumber(s.p1Bills)}</div><div class="stat-label">P1 Bills</div></div>
+            <div class="stat-card"><div class="stat-number">${formatNumber(s.upp1Bills)}</div><div class="stat-label">UP P1 Bills</div></div>
             <div class="stat-card" style="border: 1px solid #ec4899; background: rgba(236, 72, 153, 0.05);"><div class="stat-number" style="color:#ec4899">${p1ToUpP1Rate}%</div><div class="stat-label">P1 ➔ UP P1 Rate</div></div>
-            <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.p2Leads)}</div><div class="stat-label">P2 Leads</div></div>
-            <div class="stat-card"><div class="stat-number">${formatNumber(data.summary.upp2Bills)}</div><div class="stat-label">UP P2 Bills</div></div>
+            <div class="stat-card"><div class="stat-number">${formatNumber(s.p2Leads)}</div><div class="stat-label">P2 Leads</div></div>
+            <div class="stat-card"><div class="stat-number">${formatNumber(s.upp2Bills)}</div><div class="stat-label">UP P2 Bills</div></div>
             <div class="stat-card" style="border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05);"><div class="stat-number" style="color:#f59e0b">${p2ToUpP2Rate}%</div><div class="stat-label">P2 ➔ UP P2 Rate</div></div>
         </div>
     `;
@@ -380,19 +410,8 @@ function showAdDetails(campaignId) {
 }
 
 // ================================================================
-// 8. GEMINI PROMPT GENERATION (UPDATED WITH TOTAL REVENUE & ALL TOP 5)
+// 8. GEMINI PROMPT GENERATION (UPDATED ACCORDING TO USER REQUEST)
 // ================================================================
-
-function getCompareData() {
-    const start = new Date(ui.startDate.value);
-    const end = new Date(ui.endDate.value);
-    const diffTime = Math.abs(end - start);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    const prevEnd = new Date(start); prevEnd.setDate(prevEnd.getDate() - 1);
-    const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - diffDays + 1);
-    const prevData = processSalesData(allSalesDataCache, prevStart.toISOString().split('T')[0], prevEnd.toISOString().split('T')[0]);
-    return { period: `${formatDate(prevStart)} - ${formatDate(prevEnd)}`, data: prevData };
-}
 
 function generateGeminiPrompt() {
     const s = latestSalesAnalysis.summary;
@@ -412,64 +431,41 @@ function generateGeminiPrompt() {
     const p1ToUpP1Rate = s.p1Bills > 0 ? ((s.upp1Bills / s.p1Bills) * 100).toFixed(2) : "0.00";
     const p2ToUpP2Rate = s.p2Leads > 0 ? ((s.upp2Bills / s.p2Leads) * 100).toFixed(2) : "0.00";
 
-    const compare = getCompareData();
-    const ps = compare.data.summary;
-
-    const calcDiff = (curr, prev) => {
-        const diff = curr - prev;
-        const pct = prev > 0 ? ((diff / prev) * 100).toFixed(2) : "N/A";
-        const sign = diff >= 0 ? "+" : "";
-        return `${sign}${num(diff)} (${sign}${pct}%)`;
-    };
-
-    const calcDiffCurr = (curr, prev) => {
-        const diff = curr - prev;
-        const pct = prev > 0 ? ((diff / prev) * 100).toFixed(2) : "N/A";
-        const sign = diff >= 0 ? "+" : "";
-        return `${sign}${f(diff)} (${sign}${pct}%)`;
-    };
-
     const cats = latestSalesAnalysis.categories;
     const getTop5 = (sortKey) => [...cats].sort((a,b) => b[sortKey] - a[sortKey]).slice(0, 5);
 
-    let p = `--- [บริบทและการวิเคราะห์เปรียบเทียบ] ---\n`;
-    p += `* สาขา: ${branchName}\n`;
-    p += `* ช่วงเวลาปัจจุบัน: ${formatDate(new Date(ui.startDate.value))} ถึง ${formatDate(new Date(ui.endDate.value))}\n`;
-    p += `* ช่วงเวลาที่นำมาเทียบ: ${compare.period}\n\n`;
+    let p = `สาขา: ${branchName}\n`;
+    p += `ช่วงเวลาปัจจุบัน: ${formatDate(new Date(ui.startDate.value))} ถึง ${formatDate(new Date(ui.endDate.value))}\n\n`;
 
     p += `--- [ข้อมูล Ads & Funnel (ปัจจุบัน)] ---\n`;
     p += `Ad Spend: ${f(spend)}\n`;
+    p += `Total Revenue: ${f(rev)}\n`;
     p += `ROAS: ${roas}\n`;
     p += `Messaging: ${num(messaging)}\n`;
     p += `Cost Per Booking: ${f(cpb)}\n`;
     p += `Cost Per Head: ${f(cph)}\n`;
-    p += `Booking → Close: ${bookingClose}%\n\n`;
+    p += `Booking → Close: ${bookingClose}\n\n`;
 
-    p += `--- [เปรียบเทียบตัวเลขที่เปลี่ยนแปลง] ---\n`;
-    p += `1. ยอดขายรวม: ${calcDiffCurr(s.totalRevenue, ps.totalRevenue)}\n`;
-    p += `2. จำนวนบิล: ${calcDiff(s.totalBills, ps.totalBills)}\n`;
-    p += `3. จำนวนลูกค้า: ${calcDiff(s.totalCustomers, ps.totalCustomers)}\n\n`;
+    p += `--- [วิเคราะห์ลูกค้า (Sales Performance Overview)] ---\n`;
+    p += `* Total Customers: ${num(s.totalCustomers)}\n`;
+    p += `* New Customers (P1/UP P2): ${num(s.newCustomersCount)}\n`;
+    p += `* Repeat Customers (P1/UP P2): ${num(s.repeatCustomersCount)}\n\n`;
 
-    p += `--- [ข้อมูลช่วงเวลาปัจจุบัน (รายละเอียด)] ---\n`;
-    p += `* Total Revenue (รายได้รวม): ${f(s.totalRevenue)}\n`; // <--- เพิ่มตามคำขอ
-    p += `* ยอดขาย P1: ${f(s.p1Revenue)} (${num(s.p1Bills)} บิล)\n`;
-    p += `* ยอดอัพ P1: ${f(s.upp1Revenue)} (${num(s.upp1Bills)} บิล)\n`;
-    p += `* ยอดอัพ P2: ${f(s.upp2Revenue)} (${num(s.upp2Bills)} บิล)\n`;
-    p += `* P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
-    p += `* P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n`;
-    p += `* P2 Leads: ${num(s.p2Leads)} Leads\n\n`;
+    p += `--- [ข้อมูลช่วงเวลาปัจจุบัน (รายละเอียด)] ---\n\n`;
+    p += `Total Revenue (รายได้รวม): ${f(rev)}\n`;
+    p += `ยอดขาย P1: ${f(s.p1Revenue)} (${num(s.p1Bills)} บิล)\n`;
+    p += `ยอดอัพ P1: ${f(s.upp1Revenue)} (${num(s.upp1Bills)} บิล)\n`;
+    p += `ยอดอัพ P2: ${f(s.upp2Revenue)} (${num(s.upp2Bills)} บิล)\n`;
+    p += `P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
+    p += `P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n`;
+    p += `P2 Leads: ${num(s.p2Leads)} Leads\n\n`;
 
-    p += `* 5 อันดับหมวดหมู่ขายดีทั้งหมด (รายได้รวมสูงสุด):\n` + getTop5('total').map(c => `  - ${c.name}: ${f(c.total)}`).join('\n') + `\n\n`;
-    p += `* 5 อันดับหมวดหมู่ P1 ขายดี (ลูกค้าใหม่/ซื้อทันที):\n` + getTop5('p1B').map(c => `  - ${c.name}: ${num(c.p1B)} บิล`).join('\n') + `\n\n`;
-    p += `* 5 อันดับหมวดหมู่ UP P1 ขายดี (อัพเกรดจาก P1):\n` + getTop5('up1B').map(c => `  - ${c.name}: ${num(c.up1B)} บิล`).join('\n') + `\n\n`;
-    p += `* 5 อันดับหมวดหมู่ UP P2 ขายดี (ปิดการขายจาก Lead):\n` + getTop5('up2B').map(c => `  - ${c.name}: ${num(c.up2B)} บิล`).join('\n') + `\n\n`;
+    p += `5 อันดับหมวดหมู่ขายดีทั้งหมด (รายได้รวมสูงสุด):\n` + getTop5('total').map(c => `${c.name}: ${f(c.total)}`).join('\n') + `\n\n`;
+    p += `5 อันดับหมวดหมู่ P1 ขายดี (ลูกค้าใหม่/ซื้อทันที):\n` + getTop5('p1B').map(c => `${c.name}: ${num(c.p1B)} บิล`).join('\n') + `\n\n`;
+    p += `5 อันดับหมวดหมู่ UP P1 ขายดี (อัพเกรดจาก P1):\n` + getTop5('up1B').map(c => `${c.name}: ${num(c.up1B)} บิล`).join('\n') + `\n\n`;
+    p += `5 อันดับหมวดหมู่ UP P2 ขายดี (ปิดการขายจาก Lead):\n` + getTop5('up2B').map(c => `${c.name}: ${num(c.up2B)} บิล`).join('\n') + `\n\n`;
 
-    p += `--- [วิเคราะห์ตามช่องทาง] ---\n`;
-    Object.entries(latestSalesAnalysis.channels).sort((a,b) => b[1].revenue - a[1].revenue).forEach(([name, val]) => {
-        p += `* ${name}: บิล P1 ${val.p1}, UP P2 ${val.upP2}, ยอดขายรวม ${f(val.revenue)}\n`;
-    });
-
-    p += `\nกรุณาวิเคราะห์แนวโน้ม และแนะนำแนวทางแก้ไขกรณีตัวเลขลดลง โดยเน้นเปรียบเทียบหมวดหมู่สินค้าครับ`;
+    p += `กรุณาวิเคราะห์แนวโน้ม และแนะนำแนวทางแก้ไขกรณีตัวเลขลดลง โดยเน้นเปรียบเทียบหมวดหมู่สินค้าครับ`;
     return p;
 }
 
