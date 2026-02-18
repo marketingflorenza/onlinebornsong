@@ -200,7 +200,7 @@ function processSalesData(rows, startDate, endDate) {
 }
 
 // ================================================================
-// 6. RENDERING FUNCTIONS
+// 6. RENDERING FUNCTIONS (WITH AVG PER HEAD)
 // ================================================================
 
 function renderFunnel(adsTotals) {
@@ -213,6 +213,7 @@ function renderFunnel(adsTotals) {
     const roas = spend > 0 ? rev / spend : 0;
     const cpl = totalBills > 0 ? spend / totalBills : 0;
     const costPerHead = totalCustomers > 0 ? spend / totalCustomers : 0;
+    const avgPerHead = totalCustomers > 0 ? rev / totalCustomers : 0; // เพิ่ม Avg Per Head
     const bookingToClose = totalBills > 0 ? ((totalCustomers / totalBills) * 100).toFixed(2) : "0.00";
     
     document.getElementById('funnelStatsGrid').innerHTML = `
@@ -227,6 +228,10 @@ function renderFunnel(adsTotals) {
         <div class="stat-card">
             <div class="stat-number">${roas.toFixed(2)}x</div>
             <div class="stat-label">ROAS</div>
+        </div>
+        <div class="stat-card" style="border: 1px solid #3b82f6; background: rgba(59, 130, 246, 0.05);">
+            <div class="stat-number" style="color: #3b82f6;">${formatCurrency(avgPerHead)}</div>
+            <div class="stat-label">Avg Per Head</div>
         </div>
         <div class="stat-card" style="border: 1px solid var(--neon-cyan); background: rgba(0, 242, 254, 0.05);">
             <div class="stat-number" style="color: var(--neon-cyan);">${formatCurrency(cpl)}</div>
@@ -300,6 +305,13 @@ function updateCampaignsTable() {
 
 function renderSalesStats(data) {
     const s = data.summary;
+    const ads = latestAdsTotals || {};
+    const messaging = ads.messaging_conversations || 0;
+
+    // คำนวณ Success Rate เทียบกับจำนวนทัก (Messaging)
+    const messagingToP1Rate = messaging > 0 ? ((s.p1Bills / messaging) * 100).toFixed(2) : "0.00";
+    const messagingToP2Rate = messaging > 0 ? ((s.p2Leads / messaging) * 100).toFixed(2) : "0.00";
+
     document.getElementById('salesOverviewStatsGrid').innerHTML = `
         <div class="stat-card"><div class="stat-number">${formatNumber(s.totalBills)}</div><div class="stat-label">Total Bills</div></div>
         <div class="stat-card"><div class="stat-number">${formatCurrency(s.totalRevenue)}</div><div class="stat-label">Total Revenue</div></div>
@@ -327,11 +339,11 @@ function renderSalesStats(data) {
         
         <div style="margin-bottom: 10px; margin-top: 20px; color: var(--neon-cyan); font-weight: 600;">วิเคราะห์อัตราส่วนการอัพเกรด (Success Rate)</div>
         <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+            <div class="stat-card" style="border: 1px dashed var(--neon-cyan); background: rgba(0, 242, 254, 0.03);"><div class="stat-number" style="color:var(--neon-cyan)">${messagingToP1Rate}%</div><div class="stat-label">Msging ➔ P1 %</div></div>
+            <div class="stat-card" style="border: 1px dashed #f59e0b; background: rgba(245, 158, 11, 0.03);"><div class="stat-number" style="color:#f59e0b">${messagingToP2Rate}%</div><div class="stat-label">Msging ➔ P2 %</div></div>
             <div class="stat-card"><div class="stat-number">${formatNumber(s.p1Bills)}</div><div class="stat-label">P1 Bills</div></div>
-            <div class="stat-card"><div class="stat-number">${formatNumber(s.upp1Bills)}</div><div class="stat-label">UP P1 Bills</div></div>
             <div class="stat-card" style="border: 1px solid #ec4899; background: rgba(236, 72, 153, 0.05);"><div class="stat-number" style="color:#ec4899">${p1ToUpP1Rate}%</div><div class="stat-label">P1 ➔ UP P1 Rate</div></div>
             <div class="stat-card"><div class="stat-number">${formatNumber(s.p2Leads)}</div><div class="stat-label">P2 Leads</div></div>
-            <div class="stat-card"><div class="stat-number">${formatNumber(s.upp2Bills)}</div><div class="stat-label">UP P2 Bills</div></div>
             <div class="stat-card" style="border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.05);"><div class="stat-number" style="color:#f59e0b">${p2ToUpP2Rate}%</div><div class="stat-label">P2 ➔ UP P2 Rate</div></div>
         </div>
     `;
@@ -410,7 +422,7 @@ function showAdDetails(campaignId) {
 }
 
 // ================================================================
-// 8. GEMINI PROMPT GENERATION (UPDATED ACCORDING TO USER REQUEST)
+// 8. GEMINI PROMPT GENERATION (REVISED WITH ANALYST SUMMARY)
 // ================================================================
 
 function generateGeminiPrompt() {
@@ -426,25 +438,63 @@ function generateGeminiPrompt() {
     const roas = spend > 0 ? (rev / spend).toFixed(2) + 'x' : '0x';
     const cpb = s.totalBills > 0 ? (spend / s.totalBills) : 0;
     const cph = s.totalCustomers > 0 ? (spend / s.totalCustomers) : 0;
+    const aph = s.totalCustomers > 0 ? (rev / s.totalCustomers) : 0;
     const bookingClose = s.totalBills > 0 ? ((s.totalCustomers / s.totalBills) * 100).toFixed(2) : 0;
     
+    const msgingToP1 = messaging > 0 ? ((s.p1Bills / messaging) * 100).toFixed(2) : "0.00";
+    const msgingToP2 = messaging > 0 ? ((s.p2Leads / messaging) * 100).toFixed(2) : "0.00";
+
     const p1ToUpP1Rate = s.p1Bills > 0 ? ((s.upp1Bills / s.p1Bills) * 100).toFixed(2) : "0.00";
     const p2ToUpP2Rate = s.p2Leads > 0 ? ((s.upp2Bills / s.p2Leads) * 100).toFixed(2) : "0.00";
 
     const cats = latestSalesAnalysis.categories;
     const getTop5 = (sortKey) => [...cats].sort((a,b) => b[sortKey] - a[sortKey]).slice(0, 5);
 
-    let p = `สาขา: ${branchName}\n`;
+    // --- [สรุป Ads Analyst Section] ---
+    let p = `### [สรุป Ads Analyst]\n`;
+    p += `ค่า Ads = ${f(spend)}\n`;
+    p += `ข้อความทัก = ${num(messaging)}\n`;
+    p += `P1 บิล = ${num(s.p1Bills)}\n`;
+    p += `P1 ยอด = ${f(s.p1Revenue)}\n`;
+    p += `การปิด P1% = ${msgingToP1}%\n`;
+    p += `P2 นัด = ${num(s.p2Leads)}\n`;
+    p += `การปิด P2% = ${msgingToP2}%\n`;
+    p += `Avg Per Head = ${f(aph)}\n\n`;
+
+    p += `หมวดหมู่ P1 (บิลพร้อมยอดชำระ):\n`;
+    p += getTop5('p1B').filter(c => c.p1B > 0).map(c => `- ${c.name}: ${num(c.p1B)} บิล | ยอดสะสม: ${f(c.total)}`).join('\n') + `\n\n`;
+
+    p += `____________________\n\n`;
+
+    p += `UP P1 บิล = ${num(s.upp1Bills)}\n`;
+    p += `UP P1 ยอดชำระ = ${f(s.upp1Revenue)}\n`;
+    p += `หมวดหมู่ UP P1 (บิลพร้อมยอดชำระ):\n`;
+    p += getTop5('up1B').filter(c => c.up1B > 0).map(c => `- ${c.name}: ${num(c.up1B)} บิล | ยอดสะสม: ${f(c.total)}`).join('\n') + `\n\n`;
+
+    p += `UP P2 บิล = ${num(s.upp2Bills)}\n`;
+    p += `UP P2 ยอดชำระ = ${f(s.upp2Revenue)}\n`;
+    p += `หมวดหมู่ UP P2 (บิลพร้อมยอดชำระ):\n`;
+    p += getTop5('up2B').filter(c => c.up2B > 0).map(c => `- ${c.name}: ${num(c.up2B)} บิล | ยอดสะสม: ${f(c.total)}`).join('\n') + `\n\n`;
+
+    // --- [ข้อมูลเดิมทั้งหมด] ---
+    p += `สาขา: ${branchName}\n`;
     p += `ช่วงเวลาปัจจุบัน: ${formatDate(new Date(ui.startDate.value))} ถึง ${formatDate(new Date(ui.endDate.value))}\n\n`;
 
     p += `--- [ข้อมูล Ads & Funnel (ปัจจุบัน)] ---\n`;
     p += `Ad Spend: ${f(spend)}\n`;
     p += `Total Revenue: ${f(rev)}\n`;
     p += `ROAS: ${roas}\n`;
+    p += `Avg Per Head: ${f(aph)}\n`;
     p += `Messaging: ${num(messaging)}\n`;
     p += `Cost Per Booking: ${f(cpb)}\n`;
     p += `Cost Per Head: ${f(cph)}\n`;
-    p += `Booking → Close: ${bookingClose}\n\n`;
+    p += `Booking → Close: ${bookingClose}%\n\n`;
+
+    p += `--- [วิเคราะห์ Success Rate %] ---\n`;
+    p += `Messaging ➔ P1 Rate: ${msgingToP1}%\n`;
+    p += `Messaging ➔ P2 Rate: ${msgingToP2}%\n`;
+    p += `P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
+    p += `P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n\n`;
 
     p += `--- [วิเคราะห์ลูกค้า (Sales Performance Overview)] ---\n`;
     p += `* Total Customers: ${num(s.totalCustomers)}\n`;
@@ -456,8 +506,6 @@ function generateGeminiPrompt() {
     p += `ยอดขาย P1: ${f(s.p1Revenue)} (${num(s.p1Bills)} บิล)\n`;
     p += `ยอดอัพ P1: ${f(s.upp1Revenue)} (${num(s.upp1Bills)} บิล)\n`;
     p += `ยอดอัพ P2: ${f(s.upp2Revenue)} (${num(s.upp2Bills)} บิล)\n`;
-    p += `P1 ➔ UP P1 Rate: ${p1ToUpP1Rate}%\n`;
-    p += `P2 ➔ UP P2 Rate: ${p2ToUpP2Rate}%\n`;
     p += `P2 Leads: ${num(s.p2Leads)} Leads\n\n`;
 
     p += `5 อันดับหมวดหมู่ขายดีทั้งหมด (รายได้รวมสูงสุด):\n` + getTop5('total').map(c => `${c.name}: ${f(c.total)}`).join('\n') + `\n\n`;
@@ -477,7 +525,8 @@ async function main() {
     try {
         await fetchSalesData();
         const salesRes = processSalesData(allSalesDataCache, ui.startDate.value, ui.endDate.value);
-        latestSalesAnalysis = salesRes; renderSalesStats(salesRes);
+        latestSalesAnalysis = salesRes; 
+        
         const adsRes = await fetchAdsData(ui.startDate.value, ui.endDate.value);
         if (adsRes.success) {
             latestCampaignData = adsRes.data.campaigns; latestAdsTotals = adsRes.totals;
@@ -485,6 +534,9 @@ async function main() {
         } else {
             latestAdsTotals = {}; document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
         }
+        
+        renderSalesStats(salesRes);
+
     } catch (err) {
         console.error(err); ui.errorMessage.textContent = "Error: " + err.message; ui.errorMessage.classList.add('show');
     } finally { ui.loading.classList.remove('show'); }
