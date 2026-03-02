@@ -136,7 +136,6 @@ function processSalesData(rows, startDate, endDate) {
         const custPhone = String(row[C.PHONE] || '').trim();
         const custKey = `${custName}|${custPhone}`;
 
-        // เก็บข้อมูลเบื้องต้น
         if (p1 > 0) summary.p1Bills++;
         if (up1 > 0) summary.upp1Bills++;
         if (up2 > 0) summary.upp2Bills++;
@@ -148,7 +147,6 @@ function processSalesData(rows, startDate, endDate) {
             summary.upp1Revenue += up1;
             summary.upp2Revenue += up2;
             
-            // ปรับปรุงเงื่อนไข Total Customers (นับเฉพาะคนที่มีรายได้จริงจาก P1 หรือ UP P2)
             if (p1 > 0 || up2 > 0) summary.totalCustomers++;
 
             if (p1 > 0 || up2 > 0) {
@@ -193,7 +191,6 @@ function processSalesData(rows, startDate, endDate) {
         }
     });
 
-    // แก้ไข Total Bills = P1 Bills + P2 Leads
     summary.totalBills = summary.p1Bills + summary.p2Leads;
 
     return { summary, channels, categories: Object.values(categories).sort((a,b) => b.total - a.total), filteredRows };
@@ -394,20 +391,184 @@ function renderDailySpendChart(dailyData) {
 // ================================================================
 // 7. MODALS
 // ================================================================
+
+// *** ฟังก์ชันตรวจสอบลูกค้าใหม่/เก่า (ใช้ร่วมกันใน Modal) ***
+function checkIsNewCustomer(row) {
+    const C = CONFIG.COLUMN_NAMES;
+    const custName = String(row[C.CUSTOMER] || '').trim();
+    const custPhone = String(row[C.PHONE] || '').trim();
+    const startD = new Date(ui.startDate.value + 'T00:00:00');
+    const historyData = allSalesDataCache.filter(r => {
+        const d = parseGvizDate(r[C.DATE]);
+        return d && d < startD;
+    });
+    return !historyData.some(h => {
+        const hName = String(h[C.CUSTOMER] || '').trim();
+        const hPhone = String(h[C.PHONE] || '').trim();
+        return (custName !== '' && hName === custName) || (custPhone !== '' && hPhone === custPhone);
+    });
+}
+
 function showCategoryDetails(categoryName) {
     const C = CONFIG.COLUMN_NAMES;
     const filtered = latestSalesAnalysis.filteredRows.filter(r => {
         const rowCats = String(r[C.CATEGORIES] || '').split(',').map(s => s.trim());
         return rowCats.includes(categoryName);
     });
-    const groups = { p1: filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0), up1: filtered.filter(r => toNumber(r[C.UP_P1]) > 0), up2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0) };
+
+    const groups = {
+        p1:  filtered.filter(r => toNumber(r[C.P1]) > 0 && toNumber(r[C.UP_P1]) === 0),
+        up1: filtered.filter(r => toNumber(r[C.UP_P1]) > 0),
+        up2: filtered.filter(r => toNumber(r[C.UP_P2]) > 0)
+    };
+
     ui.modalTitle.textContent = `หมวดหมู่: ${categoryName}`;
     let html = '';
-    if (groups.p1.length > 0) html += `<div class="type-section"><div class="type-title">📦 P1 Bills <span class="type-badge">${groups.p1.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Channel</th><th>Interest</th><th>Revenue</th></tr></thead><tbody>${groups.p1.map(r => `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td>${r[C.CHANNEL] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td></tr>`).join('')}</tbody></table></div></div>`;
-    if (groups.up1.length > 0) html += `<div class="type-section"><div class="type-title">🚀 UP P1 Bills <span class="type-badge">${groups.up1.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Upgrade Item</th><th>Original P1</th><th>Original P1 Amt</th><th>Upgrade Amt</th></tr></thead><tbody>${groups.up1.map(r => { const custName = String(r[C.CUSTOMER] || '').trim(); const custPhone = String(r[C.PHONE] || '').trim(); const history = allSalesDataCache.find(h => { const hName = String(h[C.CUSTOMER] || '').trim(); const hPhone = String(h[C.PHONE] || '').trim(); return ((custPhone && hPhone === custPhone) || (hName === custName)) && toNumber(h[C.P1]) > 0; }); const p1Val = history ? toNumber(history[C.P1]) : 0; const p1Interest = history ? history[C.INTEREST] : 'Not Found'; return `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td><span class="context-label">Old Interest</span>${p1Interest}</td><td class="context-cell">${formatCurrency(p1Val)}</td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P1]))}</td></tr>`; }).join('')}</tbody></table></div></div>`;
-    if (groups.up2.length > 0) html += `<div class="type-section"><div class="type-title">💎 UP P2 Bills <span class="type-badge">${groups.up2.length} items</span></div><div class="scrollable-table"><table><thead><tr><th>Date</th><th>Customer</th><th>Upgrade Interest</th><th>Original P2</th><th>Revenue</th></tr></thead><tbody>${groups.up2.map(r => { const custName = String(r[C.CUSTOMER] || '').trim(); const custPhone = String(r[C.PHONE] || '').trim(); const history = allSalesDataCache.find(h => { const hName = String(h[C.CUSTOMER] || '').trim(); const hPhone = String(h[C.PHONE] || '').trim(); return ((custPhone && hPhone === custPhone) || (hName === custName)) && h[C.P2] && String(h[C.P2]).trim() !== ''; }); const p2Interest = history ? history[C.INTEREST] : 'Not Found'; const p2Date = history ? formatDate(parseGvizDate(history[C.DATE])) : ''; return `<tr><td>${formatDate(parseGvizDate(r[C.DATE]))}</td><td>${r[C.CUSTOMER] || '-'}</td><td><small>${r[C.INTEREST] || '-'}</small></td><td><span class="context-label">Lead Date: ${p2Date}</span>${p2Interest}</td><td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+
+    // ─── P1 Bills ───────────────────────────────────────────────
+    if (groups.p1.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">📦 P1 Bills <span class="type-badge">${groups.p1.length} items</span></div>
+            <div class="scrollable-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Channel</th>
+                            <th>ลูกค้าใหม่</th>
+                            <th>Interest</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${groups.p1.map(r => {
+                            const isNew = checkIsNewCustomer(r);
+                            return `<tr>
+                                <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                                <td>${r[C.CUSTOMER] || '-'}</td>
+                                <td>${r[C.CHANNEL] || '-'}</td>
+                                <td>
+                                    <span style="color:${isNew ? '#34d399' : '#a855f7'}; font-weight:600;">
+                                        ${isNew ? '🟢 ใหม่' : '🟣 เก่า'}
+                                    </span>
+                                </td>
+                                <td><small>${r[C.INTEREST] || '-'}</small></td>
+                                <td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    // ─── UP P1 Bills ─────────────────────────────────────────────
+    if (groups.up1.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">🚀 UP P1 Bills <span class="type-badge">${groups.up1.length} items</span></div>
+            <div class="scrollable-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Channel</th>
+                            <th>ลูกค้าใหม่</th>
+                            <th>Upgrade Item</th>
+                            <th>Original P1</th>
+                            <th>Original P1 Amt</th>
+                            <th>Upgrade Amt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${groups.up1.map(r => {
+                            const custName = String(r[C.CUSTOMER] || '').trim();
+                            const custPhone = String(r[C.PHONE] || '').trim();
+                            const history = allSalesDataCache.find(h => {
+                                const hName = String(h[C.CUSTOMER] || '').trim();
+                                const hPhone = String(h[C.PHONE] || '').trim();
+                                return ((custPhone && hPhone === custPhone) || (hName === custName)) && toNumber(h[C.P1]) > 0;
+                            });
+                            const p1Val = history ? toNumber(history[C.P1]) : 0;
+                            const p1Interest = history ? history[C.INTEREST] : 'Not Found';
+                            const isNew = checkIsNewCustomer(r);
+                            return `<tr>
+                                <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                                <td>${r[C.CUSTOMER] || '-'}</td>
+                                <td>${r[C.CHANNEL] || '-'}</td>
+                                <td>
+                                    <span style="color:${isNew ? '#34d399' : '#a855f7'}; font-weight:600;">
+                                        ${isNew ? '🟢 ใหม่' : '🟣 เก่า'}
+                                    </span>
+                                </td>
+                                <td><small>${r[C.INTEREST] || '-'}</small></td>
+                                <td><span class="context-label">Old Interest</span>${p1Interest}</td>
+                                <td class="context-cell">${formatCurrency(p1Val)}</td>
+                                <td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P1]))}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    // ─── UP P2 Bills ─────────────────────────────────────────────
+    if (groups.up2.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">💎 UP P2 Bills <span class="type-badge">${groups.up2.length} items</span></div>
+            <div class="scrollable-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Channel</th>
+                            <th>ลูกค้าใหม่</th>
+                            <th>Upgrade Interest</th>
+                            <th>Original P2</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${groups.up2.map(r => {
+                            const custName = String(r[C.CUSTOMER] || '').trim();
+                            const custPhone = String(r[C.PHONE] || '').trim();
+                            const history = allSalesDataCache.find(h => {
+                                const hName = String(h[C.CUSTOMER] || '').trim();
+                                const hPhone = String(h[C.PHONE] || '').trim();
+                                return ((custPhone && hPhone === custPhone) || (hName === custName)) && h[C.P2] && String(h[C.P2]).trim() !== '';
+                            });
+                            const p2Interest = history ? history[C.INTEREST] : 'Not Found';
+                            const p2Date = history ? formatDate(parseGvizDate(history[C.DATE])) : '';
+                            const isNew = checkIsNewCustomer(r);
+                            return `<tr>
+                                <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                                <td>${r[C.CUSTOMER] || '-'}</td>
+                                <td>${r[C.CHANNEL] || '-'}</td>
+                                <td>
+                                    <span style="color:${isNew ? '#34d399' : '#a855f7'}; font-weight:600;">
+                                        ${isNew ? '🟢 ใหม่' : '🟣 เก่า'}
+                                    </span>
+                                </td>
+                                <td><small>${r[C.INTEREST] || '-'}</small></td>
+                                <td><span class="context-label">Lead Date: ${p2Date}</span>${p2Interest}</td>
+                                <td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
     if (html === '') html = '<p style="text-align:center; padding: 20px;">No transaction details found.</p>';
-    ui.modalBody.innerHTML = html; ui.modal.classList.add('show');
+    ui.modalBody.innerHTML = html;
+    ui.modal.classList.add('show');
 }
 
 function showChannelDetails(channelName) {
