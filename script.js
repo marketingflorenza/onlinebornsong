@@ -36,6 +36,7 @@ let allSalesDataCache = [];
 let latestSalesAnalysis = {};
 let latestCampaignData = [];
 let latestAdsTotals = {};
+let latestDailySpendData = [];
 let currentSort = { key: 'insights.spend', direction: 'desc' };
 
 // ================================================================
@@ -171,11 +172,12 @@ function processSalesData(rows, startDate, endDate) {
             }
 
             const ch = row[C.CHANNEL] || 'ไม่ระบุ';
-            if (!channels[ch]) channels[ch] = { p1: 0, p2: 0, upP2: 0, newCust: 0, revenue: 0 };
+            if (!channels[ch]) channels[ch] = { p1: 0, p2: 0, upP2: 0, newCust: 0, revenue: 0, up2Revenue: 0 };
             if (p1 > 0 && up1 === 0) channels[ch].p1++;
             if (p2Str !== '') channels[ch].p2++;
             if (up2 > 0) channels[ch].upP2++;
             channels[ch].revenue += rev;
+            channels[ch].up2Revenue += up2;
 
             const cats = String(row[C.CATEGORIES] || '').split(',').map(s => s.trim()).filter(s => s && s !== '999');
             cats.forEach(cat => {
@@ -384,9 +386,29 @@ function renderDailySpendChart(dailyData) {
     if (charts.line) charts.line.destroy();
     charts.line = new Chart(ctx, {
         type: 'line',
-        data: { labels: dailyData.map(d => { const date = new Date(d.date); return `${date.getDate()}/${date.getMonth() + 1}`; }), datasets: [{ label: 'Ad Spend (THB)', data: dailyData.map(d => d.spend), borderColor: '#ff00f2', backgroundColor: 'rgba(255, 0, 242, 0.1)', fill: true, tension: 0.3 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } }, x: { ticks: { color: '#a0a0b0' } } }, plugins: { legend: { display: false } } }
+        data: {
+            labels: dailyData.map(d => { const date = new Date(d.date); return `${date.getDate()}/${date.getMonth() + 1}`; }),
+            datasets: [{ label: 'Ad Spend (THB)', data: dailyData.map(d => d.spend), borderColor: '#ff00f2', backgroundColor: 'rgba(255, 0, 242, 0.1)', fill: true, tension: 0.3, pointRadius: 5, pointHoverRadius: 8, pointBackgroundColor: '#ff00f2', pointBorderColor: '#fff', pointBorderWidth: 2 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            onClick: (evt, elements) => {
+                if (elements.length > 0) {
+                    const idx = elements[0].index;
+                    const dayData = latestDailySpendData[idx];
+                    if (dayData) showDailyAdsModal(dayData);
+                }
+            },
+            scales: { y: { beginAtZero: true, ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } }, x: { ticks: { color: '#a0a0b0' } } },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { footer: () => '👆 คลิกเพื่อดูรายละเอียดวันนี้' } }
+            },
+            cursor: 'pointer'
+        }
     });
+    // ให้ cursor pointer บน canvas
+    document.getElementById('dailySpendChart').style.cursor = 'pointer';
 }
 
 // ================================================================
@@ -583,8 +605,418 @@ function showAdDetails(campaignId) {
 }
 
 // ================================================================
-// 8. PROMPT GENERATION — แยก 2 ปุ่ม
+// 7b. DAILY ADS MODAL
 // ================================================================
+
+// ── Normalize date → "YYYY-MM-DD" ────────────────────────────────
+function normalizeDateStr(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    // Already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    // DD-MM-YYYY
+    const m = s.match(/^(\d{2})-(\d{2})-(\d{4})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    // Try Date parse
+    const d = new Date(s);
+    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+    return s.slice(0, 10);
+}
+
+// ── คำนวณ Messaging รายวัน ────────────────────────────────────────
+function getDailyMessaging(dateStr) {
+    const targetDate = normalizeDateStr(dateStr); // "YYYY-MM-DD"
+    let total = 0;
+
+    // 1) ลองหาจาก daily_breakdown ของแต่ละ ad
+    (latestCampaignData || []).forEach(campaign => {
+        (campaign.ads || []).forEach(ad => {
+            const breakdown = ad.daily_breakdown || ad.insights_daily || [];
+            breakdown.forEach(day => {
+                if (normalizeDateStr(day.date) === targetDate) {
+                    total += toNumber(day.messaging_conversations || day.messaging || 0);
+                }
+            });
+        });
+    });
+
+    // 2) Proportional fallback จาก spend รายวัน
+    if (total === 0) {
+        const totalSpend = toNumber(latestAdsTotals.spend || 0);
+        const totalMsg   = toNumber(latestAdsTotals.messaging_conversations || 0);
+
+        // หา daySpend โดย normalize date ทั้งสองฝั่ง
+        const dayEntry = latestDailySpendData.find(d => normalizeDateStr(d.date) === targetDate);
+        const daySpend = toNumber((dayEntry || {}).spend || 0);
+
+        if (totalSpend > 0 && totalMsg > 0 && daySpend > 0) {
+            total = Math.round((daySpend / totalSpend) * totalMsg);
+        }
+    }
+    return total;
+}
+
+function processDailyAdsSales(dateStr) {
+    const C = CONFIG.COLUMN_NAMES;
+    const normalized = normalizeDateStr(dateStr);
+    const targetDate = new Date(normalized + 'T00:00:00');
+    const targetY = targetDate.getFullYear();
+    const targetM = targetDate.getMonth();
+    const targetD = targetDate.getDate();
+
+    const dayRows = latestSalesAnalysis.filteredRows.filter(r => {
+        const d = parseGvizDate(r[C.DATE]);
+        return d && d.getFullYear() === targetY && d.getMonth() === targetM && d.getDate() === targetD;
+    });
+
+    let p1Bills = 0, p1Revenue = 0;
+    let p2Leads = 0;
+    let up1Bills = 0, up1Revenue = 0;
+    let up2Bills = 0, up2Revenue = 0;
+    let totalRevenue = 0, totalCustomers = 0;
+
+    dayRows.forEach(r => {
+        const p1    = toNumber(r[C.P1]);
+        const up1   = toNumber(r[C.UP_P1]);
+        const up2   = toNumber(r[C.UP_P2]);
+        const p2Str = String(r[C.P2] || '').trim();
+
+        if (p1  > 0) { p1Bills++;  p1Revenue  += p1;  }
+        if (up1 > 0) { up1Bills++; up1Revenue += up1; }
+        if (up2 > 0) { up2Bills++; up2Revenue += up2; }
+        if (p2Str !== '') p2Leads++;
+
+        const rev = p1 + up1 + up2;
+        if (p1 > 0 || up2 > 0) totalCustomers++;
+        totalRevenue += rev;
+    });
+
+    return { dayRows, p1Bills, p1Revenue, p2Leads, up1Bills, up1Revenue, up2Bills, up2Revenue, totalRevenue, totalCustomers };
+}
+
+function showDailyAdsModal(dayData) {
+    const C = CONFIG.COLUMN_NAMES;
+    const dateStr   = normalizeDateStr(dayData.date);   // ← normalize ก่อนใช้ทุกที่
+    const spend     = dayData.spend || 0;
+    const messaging = getDailyMessaging(dateStr);
+
+    const sales = processDailyAdsSales(dateStr);
+    const { p1Bills, p1Revenue, p2Leads, up1Bills, up1Revenue,
+            up2Bills, up2Revenue, totalRevenue, totalCustomers, dayRows } = sales;
+
+    const avgPerHead  = totalCustomers > 0 ? totalRevenue / totalCustomers : 0;
+    const closingP1   = messaging > 0 ? ((p1Bills  / messaging) * 100).toFixed(2) : '0.00';
+    const closingP2   = messaging > 0 ? ((p2Leads  / messaging) * 100).toFixed(2) : '0.00';
+    const roas        = spend > 0 ? (totalRevenue / spend).toFixed(2) : '0.00';
+    const costPerHead = totalCustomers > 0 ? spend / totalCustomers : 0;
+
+    const displayDate = formatDate(new Date(dateStr + 'T00:00:00'));
+    const branchName  = (() => {
+        try { return document.querySelector('h1').innerText.split(':')[0].trim(); } catch(e) { return 'สาขา'; }
+    })();
+
+    ui.modalTitle.textContent = `📅 วิเคราะห์ Ads ${displayDate}`;
+
+    const p1Rows  = dayRows.filter(r => toNumber(r[C.P1])    > 0 && toNumber(r[C.UP_P1]) === 0);
+    const up1Rows = dayRows.filter(r => toNumber(r[C.UP_P1]) > 0);
+    const p2Rows  = dayRows.filter(r => String(r[C.P2] || '').trim() !== '');
+    const up2Rows = dayRows.filter(r => toNumber(r[C.UP_P2]) > 0);
+
+    // ── KPI card helpers ─────────────────────────────────────────
+    const kpiCard = (color, value, label) => `
+        <div style="border:1px solid ${color};background:${color}12;border-radius:10px;
+                    padding:12px 8px;text-align:center;min-width:0;">
+            <div style="font-size:1.05em;font-weight:700;color:${color};
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${value}</div>
+            <div style="font-size:0.68em;color:#a0a0b0;margin-top:4px;line-height:1.3;">${label}</div>
+        </div>`;
+
+    // section header
+    const sectionLabel = (text) => `
+        <div style="font-size:0.7em;font-weight:700;color:#555;letter-spacing:1.5px;
+                    text-transform:uppercase;margin:14px 0 6px 2px;">${text}</div>`;
+
+    let html = `
+    <div id="dailyModalExportArea"
+         style="background:#0f0f1a;padding:18px 16px;border-radius:12px;">
+
+        <!-- ── Header ── -->
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    padding-bottom:12px;margin-bottom:4px;
+                    border-bottom:1px solid rgba(0,242,254,0.25);">
+            <div>
+                <div style="font-size:1.05em;font-weight:700;color:#00f2fe;letter-spacing:1px;">
+                    🏪 ${branchName}
+                </div>
+                <div style="font-size:0.78em;color:#a0a0b0;margin-top:2px;">
+                    📅 ประจำวันที่ ${displayDate}
+                </div>
+            </div>
+            <div style="text-align:right;font-size:0.72em;color:#444;">
+                Ads Analytics Report
+            </div>
+        </div>
+
+        <!-- ══ SECTION 1: ADS PERFORMANCE ══ -->
+        ${sectionLabel('📣 Ads Performance')}
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            ${kpiCard('#ff00f2', formatCurrency(spend),        '💸 ค่า Ads')}
+            ${kpiCard('#00f2fe', formatNumber(messaging),      '💬 Messaging')}
+            ${kpiCard('#ec4899', formatCurrency(costPerHead),  '💡 Cost / Head')}
+        </div>
+
+        <!-- ══ SECTION 2: SALES SUMMARY ══ -->
+        ${sectionLabel('💰 Sales Summary')}
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;">
+            ${kpiCard('#34d399', p1Bills + ' บิล',             '📦 P1 บิล')}
+            ${kpiCard('#34d399', formatCurrency(p1Revenue),    '📦 P1 ยอด')}
+            ${kpiCard('#f59e0b', p2Leads + ' นัด',             '📋 P2 Leads')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;">
+            ${kpiCard('#ec4899', up1Bills + ' บิล',            '🚀 UP P1 บิล')}
+            ${kpiCard('#ec4899', formatCurrency(up1Revenue),   '🚀 UP P1 ยอด')}
+            ${kpiCard('#f59e0b', p2Leads + ' นัด → ' + up2Bills + ' ปิด', '💎 P2→UP P2')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            ${kpiCard('#a78bfa', up2Bills + ' บิล',            '💎 UP P2 บิล')}
+            ${kpiCard('#a78bfa', formatCurrency(up2Revenue),   '💎 UP P2 ยอด')}
+            ${kpiCard('#ffffff', formatCurrency(totalRevenue), '🏆 ยอดขายรวม')}
+        </div>
+
+        <!-- ══ SECTION 3: CONVERSION & EFFICIENCY ══ -->
+        ${sectionLabel('🎯 Conversion & Efficiency')}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+            ${kpiCard('#00f2fe', closingP1 + '%',              '🎯 ปิด P1<br><span style="font-size:0.9em;opacity:0.6;">Msg→P1</span>')}
+            ${kpiCard('#f59e0b', closingP2 + '%',              '🎯 ปิด P2<br><span style="font-size:0.9em;opacity:0.6;">Msg→P2</span>')}
+            ${kpiCard('#3b82f6', formatCurrency(avgPerHead),   '👤 Avg / Head')}
+            ${kpiCard('#a855f7', roas + 'x',                   '📈 ROAS')}
+        </div>
+
+        <!-- ── Bill tables ── -->
+        ${buildDailyBillTables(p1Rows, up1Rows, p2Rows, up2Rows)}
+    </div>
+
+    <!-- ── Export button ── -->
+    <div style="text-align:center;margin-top:14px;">
+        <button id="exportDailyBtn"
+            onclick="exportDailyModalAsImage('${branchName}', '${displayDate}')"
+            style="padding:9px 26px;
+                   background:linear-gradient(135deg,#00f2fe,#a855f7);
+                   color:#000;border:none;border-radius:8px;font-weight:700;
+                   cursor:pointer;font-size:0.9em;letter-spacing:0.5px;">
+            📷 Export เป็นรูป
+        </button>
+    </div>`;
+
+    ui.modalBody.innerHTML = html;
+    ui.modal.classList.add('show');
+}
+
+// ── ตารางบิลทุกประเภท (style เหมือน showCategoryDetails) ──────────
+function buildDailyBillTables(p1Rows, up1Rows, p2Rows, up2Rows) {
+    const C = CONFIG.COLUMN_NAMES;
+    let html = '';
+
+    // P1
+    if (p1Rows.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">📦 P1 Bills <span class="type-badge">${p1Rows.length} items</span></div>
+            <div class="scrollable-table"><table>
+                <thead><tr>
+                    <th>Date</th><th>Customer</th><th>Channel</th>
+                    <th>ลูกค้าใหม่</th><th>Interest</th><th>Revenue</th>
+                </tr></thead>
+                <tbody>
+                ${p1Rows.map(r => {
+                    const isNew = checkIsNewCustomer(r);
+                    return `<tr>
+                        <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                        <td>${r[C.CUSTOMER]||'-'}</td>
+                        <td>${r[C.CHANNEL]||'-'}</td>
+                        <td><span style="color:${isNew?'#34d399':'#a855f7'};font-weight:600;">${isNew?'🟢 ใหม่':'🟣 เก่า'}</span></td>
+                        <td><small>${r[C.INTEREST]||'-'}</small></td>
+                        <td class="revenue-cell">${formatCurrency(toNumber(r[C.P1]))}</td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table></div>
+        </div>`;
+    }
+
+    // UP P1
+    if (up1Rows.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">🚀 UP P1 Bills <span class="type-badge">${up1Rows.length} items</span></div>
+            <div class="scrollable-table"><table>
+                <thead><tr>
+                    <th>Date</th><th>Customer</th><th>Channel</th>
+                    <th>ลูกค้าใหม่</th><th>Upgrade Item</th>
+                    <th>Original P1</th><th>Original Amt</th><th>Upgrade Amt</th>
+                </tr></thead>
+                <tbody>
+                ${up1Rows.map(r => {
+                    const custName  = String(r[C.CUSTOMER]||'').trim();
+                    const custPhone = String(r[C.PHONE]||'').trim();
+                    const history   = allSalesDataCache.find(h => {
+                        const hName  = String(h[C.CUSTOMER]||'').trim();
+                        const hPhone = String(h[C.PHONE]||'').trim();
+                        return ((custPhone && hPhone === custPhone)||(hName === custName)) && toNumber(h[C.P1]) > 0;
+                    });
+                    const p1Val      = history ? toNumber(history[C.P1]) : 0;
+                    const p1Interest = history ? history[C.INTEREST]     : 'Not Found';
+                    const isNew = checkIsNewCustomer(r);
+                    return `<tr>
+                        <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                        <td>${r[C.CUSTOMER]||'-'}</td>
+                        <td>${r[C.CHANNEL]||'-'}</td>
+                        <td><span style="color:${isNew?'#34d399':'#a855f7'};font-weight:600;">${isNew?'🟢 ใหม่':'🟣 เก่า'}</span></td>
+                        <td><small>${r[C.INTEREST]||'-'}</small></td>
+                        <td><span class="context-label">Old Interest</span>${p1Interest}</td>
+                        <td class="context-cell">${formatCurrency(p1Val)}</td>
+                        <td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P1]))}</td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table></div>
+        </div>`;
+    }
+
+    // P2 Leads
+    if (p2Rows.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">📋 P2 Leads <span class="type-badge">${p2Rows.length} items</span></div>
+            <div class="scrollable-table"><table>
+                <thead><tr>
+                    <th>Date</th><th>Customer</th><th>Channel</th><th>Tel</th><th>Interest</th>
+                </tr></thead>
+                <tbody>
+                ${p2Rows.map(r => `<tr>
+                    <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                    <td>${r[C.CUSTOMER]||'-'}</td>
+                    <td>${r[C.CHANNEL]||'-'}</td>
+                    <td style="color:#a0a0b0;font-size:0.85em;">${r[C.PHONE]||'-'}</td>
+                    <td><small>${r[C.P2]||'-'}</small></td>
+                </tr>`).join('')}
+                </tbody>
+            </table></div>
+        </div>`;
+    }
+
+    // UP P2
+    if (up2Rows.length > 0) {
+        html += `
+        <div class="type-section">
+            <div class="type-title">💎 UP P2 Bills <span class="type-badge">${up2Rows.length} items</span></div>
+            <div class="scrollable-table"><table>
+                <thead><tr>
+                    <th>Date</th><th>Customer</th><th>Channel</th>
+                    <th>ลูกค้าใหม่</th><th>Upgrade Interest</th><th>Original P2</th><th>Revenue</th>
+                </tr></thead>
+                <tbody>
+                ${up2Rows.map(r => {
+                    const custName  = String(r[C.CUSTOMER]||'').trim();
+                    const custPhone = String(r[C.PHONE]||'').trim();
+                    const history   = allSalesDataCache.find(h => {
+                        const hName  = String(h[C.CUSTOMER]||'').trim();
+                        const hPhone = String(h[C.PHONE]||'').trim();
+                        return ((custPhone && hPhone === custPhone)||(hName === custName))
+                            && h[C.P2] && String(h[C.P2]).trim() !== '';
+                    });
+                    const p2Interest = history ? history[C.INTEREST]                        : 'Not Found';
+                    const p2Date     = history ? formatDate(parseGvizDate(history[C.DATE])) : '';
+                    const isNew = checkIsNewCustomer(r);
+                    return `<tr>
+                        <td>${formatDate(parseGvizDate(r[C.DATE]))}</td>
+                        <td>${r[C.CUSTOMER]||'-'}</td>
+                        <td>${r[C.CHANNEL]||'-'}</td>
+                        <td><span style="color:${isNew?'#34d399':'#a855f7'};font-weight:600;">${isNew?'🟢 ใหม่':'🟣 เก่า'}</span></td>
+                        <td><small>${r[C.INTEREST]||'-'}</small></td>
+                        <td><span class="context-label">Lead Date: ${p2Date}</span>${p2Interest}</td>
+                        <td class="revenue-cell">${formatCurrency(toNumber(r[C.UP_P2]))}</td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table></div>
+        </div>`;
+    }
+
+    if (html === '') html = '<p style="text-align:center;color:#a0a0b0;padding:20px;">ไม่มีบิลในวันนี้</p>';
+    return html;
+}
+
+// ── Export modal เป็นรูป พร้อมสาขา + วันที่ ──────────────────────
+async function exportDailyModalAsImage(branchName, displayDate) {
+    const btn = document.getElementById('exportDailyBtn');
+    if (btn) { btn.textContent = '⏳ กำลังสร้างรูป...'; btn.disabled = true; }
+
+    try {
+        // lazy-load html2canvas จาก CDN
+        if (typeof html2canvas === 'undefined') {
+            await new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+                s.onload = resolve; s.onerror = reject;
+                document.head.appendChild(s);
+            });
+        }
+
+        const target = document.getElementById('dailyModalExportArea');
+
+        // ขยาย scrollable-table ให้แสดงครบก่อน capture
+        const scrollDivs = target.querySelectorAll('.scrollable-table');
+        const origMax = [], origOvf = [];
+        scrollDivs.forEach(d => {
+            origMax.push(d.style.maxHeight);
+            origOvf.push(d.style.overflow);
+            d.style.maxHeight = 'none';
+            d.style.overflow  = 'visible';
+        });
+
+        // capture @ scale 3 เพื่อความคมชัด
+        const canvas = await html2canvas(target, {
+            backgroundColor: '#0f0f1a',
+            scale: 3,
+            useCORS: true,
+            allowTaint: true,
+            logging: false,
+            windowWidth: target.scrollWidth,
+            windowHeight: target.scrollHeight
+        });
+
+        // คืนค่าเดิม
+        scrollDivs.forEach((d, i) => {
+            d.style.maxHeight = origMax[i];
+            d.style.overflow  = origOvf[i];
+        });
+
+        // filename: branchName_DD-MM-YY.png
+        const safeDate   = displayDate.replace(/\s/g,'').replace(/\//g,'-');
+        const safeBranch = branchName.replace(/[^a-zA-Zก-๙0-9]/g,'_');
+        const link = document.createElement('a');
+        link.download = `${safeBranch}_${safeDate}.png`;
+        link.href = canvas.toDataURL('image/png', 1.0);
+        link.click();
+
+        if (btn) { btn.textContent = '✅ บันทึกแล้ว!'; }
+        setTimeout(() => {
+            if (btn) { btn.textContent = '📷 Export เป็นรูป'; btn.disabled = false; }
+        }, 2000);
+
+    } catch (err) {
+        console.error('Export error:', err);
+        if (btn) { btn.textContent = '❌ Export ไม่สำเร็จ'; }
+        setTimeout(() => {
+            if (btn) { btn.textContent = '📷 Export เป็นรูป'; btn.disabled = false; }
+        }, 2000);
+    }
+}
+
+
+
+
 
 // ── ปุ่มที่ 1: สรุป Ads Analyst ──────────────────────────────────
 function generateAdsAnalystPrompt() {
@@ -601,6 +1033,8 @@ function generateAdsAnalystPrompt() {
     const msgingToP2 = messaging > 0 ? ((s.p2Leads / messaging) * 100).toFixed(2) : "0.00";
 
     const cats = latestSalesAnalysis.categories || [];
+
+    // ── getTop5 แยกตาม sortKey ────────────────────────────────────
     const getTop5 = (sortKey) => [...cats].sort((a, b) => b[sortKey] - a[sortKey]).slice(0, 5);
 
     // ── channel data ──────────────────────────────────────────────
@@ -617,11 +1051,11 @@ function generateAdsAnalystPrompt() {
     p += `การปิด P2% = ${msgingToP2}%\n`;
     p += `Avg Per Head = ${f(aph)}\n\n`;
 
-    // ── P1 ────────────────────────────────────────────────────────
+    // ── P1 (ใช้ p1Val และ p1B เท่านั้น) ──────────────────────────
     p += `หมวดหมู่ P1 (บิลพร้อมยอดชำระ):\n`;
     const p1cats = getTop5('p1B').filter(c => c.p1B > 0);
     p += (p1cats.length > 0
-        ? p1cats.map(c => `- ${c.name}: ${num(c.p1B)} บิล | ยอดสะสม: ${f(c.total)}`).join('\n')
+        ? p1cats.map(c => `- ${c.name}: ${num(c.p1B)} บิล | ยอดสะสม: ${f(c.p1Val)}`).join('\n')
         : '- ไม่มีข้อมูล');
     p += `\n\n`;
 
@@ -637,23 +1071,23 @@ function generateAdsAnalystPrompt() {
     }
     p += `\n____________________\n\n`;
 
-    // ── UP P1 ─────────────────────────────────────────────────────
+    // ── UP P1 (ใช้ up1Val และ up1B เท่านั้น) ─────────────────────
     p += `UP P1 บิล = ${num(s.upp1Bills)}\n`;
     p += `UP P1 ยอดชำระ = ${f(s.upp1Revenue)}\n`;
     p += `หมวดหมู่ UP P1 (บิลพร้อมยอดชำระ):\n`;
     const up1cats = getTop5('up1B').filter(c => c.up1B > 0);
     p += (up1cats.length > 0
-        ? up1cats.map(c => `- ${c.name}: ${num(c.up1B)} บิล | ยอดสะสม: ${f(c.total)}`).join('\n')
+        ? up1cats.map(c => `- ${c.name}: ${num(c.up1B)} บิล | ยอดสะสม: ${f(c.up1Val)}`).join('\n')
         : '- ไม่มีข้อมูล');
     p += `\n\n`;
 
-    // ── UP P2 ─────────────────────────────────────────────────────
+    // ── UP P2 (ใช้ up2Val และ up2B เท่านั้น) ─────────────────────
     p += `UP P2 บิล = ${num(s.upp2Bills)}\n`;
     p += `UP P2 ยอดชำระ = ${f(s.upp2Revenue)}\n`;
     p += `หมวดหมู่ UP P2 (บิลพร้อมยอดชำระ):\n`;
     const up2cats = getTop5('up2B').filter(c => c.up2B > 0);
     p += (up2cats.length > 0
-        ? up2cats.map(c => `- ${c.name}: ${num(c.up2B)} บิล | ยอดสะสม: ${f(c.total)}`).join('\n')
+        ? up2cats.map(c => `- ${c.name}: ${num(c.up2B)} บิล | ยอดสะสม: ${f(c.up2Val)}`).join('\n')
         : '- ไม่มีข้อมูล');
     p += `\n\n`;
 
@@ -661,7 +1095,7 @@ function generateAdsAnalystPrompt() {
     if (sortedChannels.length > 0) {
         sortedChannels.forEach(([chName, chVal]) => {
             if (chVal.upP2 > 0) {
-                p += `- ${chName}: ${num(chVal.upP2)} บิล | ยอดรวม: ${f(chVal.revenue)}\n`;
+                p += `- ${chName}: ${num(chVal.upP2)} บิล | ยอดสะสม: ${f(chVal.up2Revenue)}\n`;
             }
         });
     } else {
@@ -827,10 +1261,11 @@ async function main() {
         if (adsRes.success) {
             latestCampaignData = adsRes.data.campaigns;
             latestAdsTotals = adsRes.totals;
+            latestDailySpendData = adsRes.data.dailySpend || [];
             renderFunnel(adsRes.totals);
             renderAdsStats(adsRes.totals);
             updateCampaignsTable();
-            renderDailySpendChart(adsRes.data.dailySpend);
+            renderDailySpendChart(latestDailySpendData);
         } else {
             latestAdsTotals = {};
             document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
