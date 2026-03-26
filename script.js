@@ -79,6 +79,45 @@ function hasPaidHistory(custName, custPhone, historyRows) {
                (custPhone !== '' && hPhone === custPhone);
     });
 }
+// ================================================================
+// เพิ่มฟังก์ชันนี้ในหมวด 3. HELPER FUNCTIONS
+// ================================================================
+function fillMissingDates(dailySpendArray, startDateStr, endDateStr) {
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    const dataMap = {};
+
+    // แปลงข้อมูลที่มีอยู่ให้เป็น Map เพื่อง่ายต่อการค้นหา
+    (dailySpendArray || []).forEach(d => {
+        // จัดฟอร์แมตวันที่ให้ตรงกัน
+        const dateObj = new Date(d.date);
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        dataMap[`${y}-${m}-${day}`] = d;
+    });
+
+    const result = [];
+    let current = new Date(start);
+
+    // วนลูปตั้งแต่วันเริ่มต้นยันวันสิ้นสุด
+    while (current <= end) {
+        const y = current.getFullYear();
+        const m = String(current.getMonth() + 1).padStart(2, '0');
+        const day = String(current.getDate()).padStart(2, '0');
+        const dateKey = `${y}-${m}-${day}`;
+
+        if (dataMap[dateKey]) {
+            result.push(dataMap[dateKey]); // ใช้วันที่มีข้อมูล
+        } else {
+            result.push({ date: dateKey, spend: 0 }); // ถ้าไม่มี ยัด spend: 0
+        }
+        
+        current.setDate(current.getDate() + 1); // ขยับไปวันถัดไป
+    }
+
+    return result;
+}
 
 // ================================================================
 // 4. DATA FETCHING
@@ -1284,14 +1323,22 @@ async function main() {
         if (adsRes.success) {
             latestCampaignData   = adsRes.data.campaigns;
             latestAdsTotals      = adsRes.totals;
-            latestDailySpendData = adsRes.data.dailySpend || [];
+            
+            // ✅ เปลี่ยนบรรทัดนี้: เติมวันที่ให้ครบแม้ Spend จะเป็น 0
+            latestDailySpendData = fillMissingDates(adsRes.data.dailySpend, ui.startDate.value, ui.endDate.value);
+            
             renderFunnel(adsRes.totals);
             renderAdsStats(adsRes.totals);
             updateCampaignsTable();
             renderDailySpendChart(latestDailySpendData);
         } else {
-            latestAdsTotals = {};
+            latestAdsTotals      = {};
+            
+            // ✅ เปลี่ยนบรรทัดนี้: กรณี API Error ก็ยังต้องแสดงกราฟวันที่เป็น 0 ให้กดดูยอดขายได้
+            latestDailySpendData = fillMissingDates([], ui.startDate.value, ui.endDate.value);
+            
             document.getElementById('adsStatsGrid').innerHTML = '<p style="color:var(--text-secondary);">Unable to load Ads data.</p>';
+            renderDailySpendChart(latestDailySpendData); // ส่งข้อมูลที่เติมแล้วไปแสดงผล
         }
 
         renderSalesStats(salesRes);
