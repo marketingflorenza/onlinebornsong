@@ -80,7 +80,7 @@ function hasPaidHistory(custName, custPhone, historyRows) {
     });
 }
 // ================================================================
-// เพิ่มฟังก์ชันนี้ในหมวด 3. HELPER FUNCTIONS
+// เพิ่มฟั่งชั่นให้เห็น
 // ================================================================
 function fillMissingDates(dailySpendArray, startDateStr, endDateStr) {
     const start = new Date(startDateStr);
@@ -127,7 +127,6 @@ async function fetchAdsData(startDate, endDate) {
     const until = endDate.split('-').reverse().join('-');
     try {
         const response = await fetch(`${CONFIG.API_BASE_URL}?since=${since}&until=${until}`);
-        if (!response.ok) throw new Error('Ads API Error');
         return await response.json();
     } catch (error) {
         console.warn("Ads Fetch Error:", error);
@@ -229,23 +228,47 @@ function processSalesData(rows, startDate, endDate) {
             channels[ch].revenue    += rev;
             channels[ch].up2Revenue += up2;
 
+            let isOldCustomerForCat = false;
+            if (p1 > 0 || up2 > 0) {
+                isOldCustomerForCat = hasPaidHistory(custName, custPhone, historyData);
+            }
+
             const cats = String(row[C.CATEGORIES] || '').split(',').map(s => s.trim()).filter(s => s && s !== '999');
             cats.forEach(cat => {
-                if (!categories[cat]) categories[cat] = { name: cat, total: 0, p1B: 0, up1B: 0, up2B: 0, p1Val: 0, up1Val: 0, up2Val: 0 };
+                // อัปเดตโครงสร้างเริ่มต้น ให้รองรับการเก็บ Set ลูกค้า (กันนับซ้ำ) และตัวนับลูกค้า
+                if (!categories[cat]) categories[cat] = { 
+                    name: cat, total: 0, p1B: 0, up1B: 0, up2B: 0, p1Val: 0, up1Val: 0, up2Val: 0,
+                    custSet: new Set(), newCust: 0, oldCust: 0
+                };
+                
                 const count = cats.length || 1;
                 categories[cat].total  += rev / count;
                 categories[cat].p1Val  += p1  / count;
                 categories[cat].up1Val += up1 / count;
                 categories[cat].up2Val += up2 / count;
+                
                 if (p1  > 0) categories[cat].p1B++;
                 if (up1 > 0) categories[cat].up1B++;
                 if (up2 > 0) categories[cat].up2B++;
+
+                // เพิ่มลอจิกนับจำนวนลูกค้าแยกเก่า-ใหม่ แบบไม่ซ้ำคน (Unique)
+                if (p1 > 0 || up2 > 0) {
+                    if (!categories[cat].custSet.has(custKey)) {
+                        categories[cat].custSet.add(custKey); // เก็บ key ลูกค้าไว้ เพื่อครั้งหน้าจะได้ไม่นับซ้ำ
+                        if (isOldCustomerForCat) {
+                            categories[cat].oldCust++;
+                        } else {
+                            categories[cat].newCust++;
+                        }
+                    }
+                }
             });
         }
     });
 
     summary.totalBills = summary.p1Bills + summary.p2Leads;
 
+    // คืนค่า categories ออกไปเหมือนเดิม (คุณสามารถเอา newCust, oldCust ไปรวมกันเพื่อหา Total Customers ได้เลยตอน Render)
     return { summary, channels, categories: Object.values(categories).sort((a, b) => b.total - a.total), filteredRows };
 }
 
@@ -406,16 +429,22 @@ function renderSalesStats(data) {
         </div>
     `;
 
-    const sortedChannels = Object.entries(data.channels).sort((a, b) => b[1].revenue - a[1].revenue);
-    document.getElementById('channelTableBody').innerHTML = sortedChannels.map(([name, val]) => `
-        <tr class="clickable-row" onclick="showChannelDetails('${name.replace(/'/g, "\\'")}')">
-            <td><strong>${name}</strong></td><td>${formatNumber(val.p1)}</td><td>${formatNumber(val.p2)}</td><td>${formatNumber(val.upP2)}</td><td class="revenue-cell">${formatCurrency(val.revenue)}</td>
-        </tr>`).join('');
-
-    document.getElementById('categoryTableBody').innerHTML = data.categories.map((c, i) => `
+    document.getElementById('categoryTableBody').innerHTML = data.categories.map((c, i) => {
+        const totalCust = c.newCust + c.oldCust;
+        return `
         <tr class="clickable-row" onclick="showCategoryDetails('${c.name.replace(/'/g, "\\'")}')">
-            <td style="text-align:center;"><span class="type-badge">${i + 1}</span></td><td><strong>${c.name}</strong></td><td>${formatNumber(c.p1B)}</td><td>${formatNumber(c.up1B)}</td><td>${formatNumber(c.up2B)}</td><td class="revenue-cell">${formatCurrency(c.total)}</td>
-        </tr>`).join('');
+            <td style="text-align:center;"><span class="type-badge">${i + 1}</span></td>
+            <td><strong>${c.name}</strong></td>
+            <td>${formatNumber(c.p1B)}<br><span style="font-size:0.85em; color:#34d399;">${formatCurrency(c.p1Val)}</span></td>
+            <td>${formatNumber(c.up1B)}<br><span style="font-size:0.85em; color:#ec4899;">${formatCurrency(c.up1Val)}</span></td>
+            <td>${formatNumber(c.up2B)}<br><span style="font-size:0.85em; color:#f59e0b;">${formatCurrency(c.up2Val)}</span></td>
+            
+            <td style="color:#60a5fa; font-weight:600;">${formatNumber(totalCust)}</td>
+            <td style="color:#a855f7;">${formatNumber(c.oldCust)}</td>
+            <td style="color:#34d399;">${formatNumber(c.newCust)}</td>
+            <td class="revenue-cell">${formatCurrency(c.total)}</td>
+        </tr>`;
+    }).join('');
 
     updateCategoryChart(data.categories);
 }
@@ -431,33 +460,165 @@ function updateCategoryChart(cats) {
     });
 }
 
+// ================================================================
+// 6b. DAILY SPEND CHART
+// ================================================================
 function renderDailySpendChart(dailyData) {
-    const ctx = document.getElementById('dailySpendChart').getContext('2d');
-    if (charts.line) charts.line.destroy();
+    const canvas = document.getElementById('dailySpendChart');
+    const ctx    = canvas.getContext('2d');
+
+    // ทำลาย chart เดิมก่อนเสมอ
+    if (charts.line) {
+        charts.line.destroy();
+        charts.line = null;
+    }
+
+    // ✅ ไม่กรองทิ้งวันที่ spend = 0 — เก็บไว้ทุกวัน
+    const allData = (dailyData || []);
+
+    // ── EMPTY STATE: ไม่มีข้อมูลวันไหนเลย ───────────────────────
+    if (allData.length === 0) {
+        const rect = canvas.getBoundingClientRect();
+        const w = rect.width  || canvas.offsetWidth  || 600;
+        const h = rect.height || canvas.offsetHeight || 200;
+        canvas.width  = w * window.devicePixelRatio;
+        canvas.height = h * window.devicePixelRatio;
+        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+        ctx.clearRect(0, 0, w, h);
+
+        // พื้นหลังจางๆ
+        ctx.fillStyle = 'rgba(255,0,242,0.03)';
+        ctx.fillRect(0, 0, w, h);
+
+        // เส้น grid แนวนอน
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth   = 1;
+        const gridLines = 5;
+        for (let i = 1; i < gridLines; i++) {
+            const y = (h / gridLines) * i;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+
+        // เส้น grid แนวตั้ง
+        const vLines = 8;
+        for (let i = 1; i < vLines; i++) {
+            const x = (w / vLines) * i;
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        }
+
+        // เส้นแนวโน้ม placeholder (คลื่นจาง)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255,0,242,0.12)';
+        ctx.lineWidth   = 2;
+        for (let x = 0; x <= w; x += 2) {
+            const y = h / 2 + Math.sin((x / w) * Math.PI * 3) * (h * 0.15);
+            x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // วงกลม icon background
+        const cx = w / 2;
+        const cy = h / 2 - 18;
+        const r  = Math.min(w, h) * 0.1;
+        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        gradient.addColorStop(0, 'rgba(255,0,242,0.25)');
+        gradient.addColorStop(1, 'rgba(255,0,242,0.00)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // icon 📉
+        ctx.font      = `${Math.max(18, Math.min(28, h * 0.18))}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(255,0,242,0.85)';
+        ctx.fillText('📉', cx, cy);
+
+        // ข้อความหลัก
+        const fontSize1 = Math.max(11, Math.min(14, h * 0.08));
+        ctx.font      = `600 ${fontSize1}px sans-serif`;
+        ctx.fillStyle = '#c0c0d0';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('ไม่มีข้อมูล Ad Spend ในช่วงเวลานี้', cx, cy + r + 16);
+
+        // ข้อความรอง
+        const fontSize2 = Math.max(9, Math.min(11, h * 0.065));
+        ctx.font      = `${fontSize2}px sans-serif`;
+        ctx.fillStyle = '#666680';
+        ctx.fillText('ลองเปลี่ยนช่วงวันที่แล้วกด Refresh', cx, cy + r + 34);
+
+        canvas.style.cursor = 'default';
+        return;
+    }
+
+    // ── NORMAL CHART (รวมวันที่ spend = 0 ด้วย) ──────────────────
+    // 🟡 จุดสีเหลือง + ขนาดใหญ่กว่า = วันที่ไม่มี spend แต่คลิกดูบิลได้
+    const pointColors = allData.map(d =>
+        toNumber(d.spend) === 0 ? '#facc15' : '#ff00f2'
+    );
+    const pointRadii = allData.map(d =>
+        toNumber(d.spend) === 0 ? 7 : 5
+    );
+
     charts.line = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: dailyData.map(d => { const date = new Date(d.date); return `${date.getDate()}/${date.getMonth() + 1}`; }),
-            datasets: [{ label: 'Ad Spend (THB)', data: dailyData.map(d => d.spend), borderColor: '#ff00f2', backgroundColor: 'rgba(255, 0, 242, 0.1)', fill: true, tension: 0.3, pointRadius: 5, pointHoverRadius: 8, pointBackgroundColor: '#ff00f2', pointBorderColor: '#fff', pointBorderWidth: 2 }]
+            labels: allData.map(d => {
+                const date = new Date(d.date);
+                return `${date.getDate()}/${date.getMonth() + 1}`;
+            }),
+            datasets: [{
+                label: 'Ad Spend (THB)',
+                data: allData.map(d => toNumber(d.spend)),
+                borderColor: '#ff00f2',
+                backgroundColor: 'rgba(255, 0, 242, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: pointRadii,
+                pointHoverRadius: 9,
+                pointBackgroundColor: pointColors,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: true,
+            maintainAspectRatio: false,
             onClick: (evt, elements) => {
                 if (elements.length > 0) {
-                    const idx = elements[0].index;
-                    const dayData = latestDailySpendData[idx];
+                    const idx     = elements[0].index;
+                    const dayData = allData[idx];
                     if (dayData) showDailyAdsModal(dayData);
                 }
             },
-            scales: { y: { beginAtZero: true, ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.1)' } }, x: { ticks: { color: '#a0a0b0' } } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: '#a0a0b0' },
+                    grid: { color: 'rgba(255,255,255,0.1)' }
+                },
+                x: { ticks: { color: '#a0a0b0' } }
+            },
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { footer: () => '👆 คลิกเพื่อดูรายละเอียดวันนี้' } }
-            },
-            cursor: 'pointer'
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            const val = context.parsed.y;
+                            return val === 0
+                                ? '💸 ไม่มี Spend วันนี้ — คลิกดูบิล'
+                                : `Ad Spend: ${formatCurrency(val)}`;
+                        },
+                        footer: () => '👆 คลิกเพื่อดูรายละเอียดวันนี้'
+                    }
+                }
+            }
         }
     });
-    document.getElementById('dailySpendChart').style.cursor = 'pointer';
+
+    canvas.style.cursor = 'pointer';
 }
 
 // ================================================================
@@ -719,59 +880,6 @@ function processDailyAdsSales(dateStr) {
     return { dayRows, p1Bills, p1Revenue, p2Leads, up1Bills, up1Revenue, up2Bills, up2Revenue, totalRevenue, totalCustomers };
 }
 
-// ================================================================
-// 7c. NEW: P2 Interest Summary Builder
-// ── นับความถี่ของแต่ละ interest จาก P2 Rows แล้วสร้าง HTML summary
-// ================================================================
-function buildP2InterestSummary(p2Rows) {
-    const C = CONFIG.COLUMN_NAMES;
-    if (!p2Rows || p2Rows.length === 0) return '';
-
-    // นับความถี่ interest จาก column P2
-    const interestCount = {};
-    p2Rows.forEach(r => {
-        const interest = String(r[C.P2] || '').trim();
-        if (interest === '') return;
-        // บาง interest อาจมีหลายรายการคั่นด้วย comma
-        const items = interest.split(',').map(s => s.trim()).filter(s => s !== '');
-        items.forEach(item => {
-            interestCount[item] = (interestCount[item] || 0) + 1;
-        });
-    });
-
-    const sorted = Object.entries(interestCount).sort((a, b) => b[1] - a[1]);
-    if (sorted.length === 0) return '';
-
-    const bars = sorted.map(([name, count]) => {
-        const maxCount = sorted[0][1];
-        const pct = Math.round((count / maxCount) * 100);
-        return `
-            <div style="margin-bottom:6px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                    <span style="font-size:0.78em;color:#e2e8f0;flex:1;margin-right:8px;
-                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
-                    <span style="font-size:0.78em;font-weight:700;color:#f59e0b;
-                                 white-space:nowrap;">${count} นัด</span>
-                </div>
-                <div style="background:#1e1e35;border-radius:4px;height:6px;overflow:hidden;">
-                    <div style="width:${pct}%;height:100%;
-                                background:linear-gradient(90deg,#f59e0b,#fbbf24);
-                                border-radius:4px;transition:width 0.3s;"></div>
-                </div>
-            </div>`;
-    }).join('');
-
-    return `
-        <div style="background:#12122a;border:1px solid rgba(245,158,11,0.3);
-                    border-radius:10px;padding:12px 14px;margin-bottom:10px;">
-            <div style="font-size:0.72em;font-weight:700;color:#f59e0b;
-                        letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;">
-                📋 P2 Leads — ความสนใจ (${p2Rows.length} นัด)
-            </div>
-            ${bars}
-        </div>`;
-}
-
 function showDailyAdsModal(dayData) {
     const C       = CONFIG.COLUMN_NAMES;
     const dateStr = normalizeDateStr(dayData.date);
@@ -811,9 +919,6 @@ function showDailyAdsModal(dayData) {
     const sectionLabel = (text) => `
         <div style="font-size:0.7em;font-weight:700;color:#555;letter-spacing:1.5px;
                     text-transform:uppercase;margin:14px 0 6px 2px;">${text}</div>`;
-
-    // ── สร้าง P2 Interest Summary (ใหม่) ──
-    const p2InterestSummaryHtml = buildP2InterestSummary(p2Rows);
 
     let html = `
     <div id="dailyModalExportArea"
@@ -870,9 +975,6 @@ function showDailyAdsModal(dayData) {
             ${kpiCard('#3b82f6', formatCurrency(avgPerHead),   '👤 Avg / Head')}
             ${kpiCard('#a855f7', roas + 'x',                   '📈 ROAS')}
         </div>
-
-        <!-- ══ SECTION 4: P2 INTEREST SUMMARY (ใหม่) ══ -->
-        ${p2Rows.length > 0 ? sectionLabel('📋 P2 Leads Interest Summary') + p2InterestSummaryHtml : ''}
 
         <!-- ── Bill tables ── -->
         ${buildDailyBillTables(p1Rows, up1Rows, p2Rows, up2Rows)}
@@ -965,7 +1067,7 @@ function buildDailyBillTables(p1Rows, up1Rows, p2Rows, up2Rows) {
         </div>`;
     }
 
-    // P2 Leads — เพิ่มคอลัมน์ "ความสนใจ (P2)" และ "Channel"
+    // P2 Leads
     if (p2Rows.length > 0) {
         html += `
         <div class="type-section">
@@ -973,7 +1075,7 @@ function buildDailyBillTables(p1Rows, up1Rows, p2Rows, up2Rows) {
             <div class="scrollable-table"><table>
                 <thead><tr>
                     <th>Date</th><th>Customer</th><th>Channel</th><th>Tel</th>
-                    <th>ความสนใจ (P2)</th><th>รายการที่สนใจ</th>
+                    <th>รายการที่สนใจ</th>
                 </tr></thead>
                 <tbody>
                 ${p2Rows.map(r => `<tr>
@@ -981,7 +1083,6 @@ function buildDailyBillTables(p1Rows, up1Rows, p2Rows, up2Rows) {
                     <td>${r[C.CUSTOMER] || '-'}</td>
                     <td>${r[C.CHANNEL]  || '-'}</td>
                     <td style="color:#a0a0b0;font-size:0.85em;">${r[C.PHONE] || '-'}</td>
-                    <td><span style="color:#f59e0b;font-weight:600;">${r[C.P2] || '-'}</span></td>
                     <td><small style="color:#a0a0b0;">${r[C.INTEREST] || '-'}</small></td>
                 </tr>`).join('')}
                 </tbody>
