@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BSK Dashboard: Ads & Sales</title>
+    <title>FRC Dashboard: Ads & Sales</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,7 +13,7 @@
 <body>
     <div class="container">
         <div class="topbar glass-panel">
-            <h1>🚀 BSK Dashboard: Marketing & Sales</h1>
+            <h1>🚀 FRC Dashboard: Marketing & Sales</h1>
             <div class="controls">
                 <div class="control-row">
                     <label>Start: <input type="date" id="startDate" /></label>
@@ -106,22 +106,6 @@
         <div class="section-header"><h2>💸 Revenue Breakdown</h2></div>
         <div id="revenueContainer"></div>
 
-        <div class="glass-panel scrollable-table">
-            <h2 class="chart-title">📡 ตารางสรุปช่องทางการติดต่อ</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ช่องทาง</th>
-                        <th>จำนวนบิล P1</th>
-                        <th>P2 Leads</th>
-                        <th>จำนวนบิล UP P2</th>
-                        <th>ยอดขายรวม</th>
-                    </tr>
-                </thead>
-                <tbody id="channelTableBody"></tbody>
-            </table>
-        </div>
-
         <div class="section-header"><h2>📋 Category Performance Breakdown</h2></div>
         <div class="glass-panel">
             <h2 class="chart-title">กราฟยอดขายตามหมวดหมู่</h2>
@@ -138,16 +122,18 @@
                     <tr>
                         <th>Rank</th>
                         <th>Category</th>
-                        <th>P1 Bills</th>
-                        <th>UP P1 Bills</th>
-                        <th>UP P2 Bills</th>
+                        <th>P1 (บิล/ยอด)</th>
+                        <th>UP P1 (บิล/ยอด)</th>
+                        <th>UP P2 (บิล/ยอด)</th>
+                        <th>รวมลูกค้า</th>
+                        <th>ลูกค้าเก่า</th>
+                        <th>ลูกค้าใหม่</th>
                         <th>Total Revenue</th>
                     </tr>
                 </thead>
                 <tbody id="categoryTableBody"></tbody>
             </table>
         </div>
-    </div>
 
     <div id="detailsModal" class="modal-overlay">
         <div class="modal-content glass-panel">
