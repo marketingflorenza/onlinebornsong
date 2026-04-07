@@ -5,6 +5,7 @@ const CONFIG = {
     API_BASE_URL: 'https://my-facebook-backend-bsk.vercel.app/api/bornsong',
     SHEET_ID: '1dlgM7YaQmJQTuiuNdAMb6tjKHllPgIs8MjfgGZnp8jU',
     SHEET_NAME_SUMMARY: 'SUM',
+    GOOGLE_SHEET_WEBHOOK_URL: 'https://script.google.com/macros/s/AKfycbw3sB51doTE-BbjlkJaHlWGIg_Bm8VrHvLOfFU3xSAN4a29qRajyN2GlqcHcUXBAyWMag/exec',
     COLUMN_NAMES: {
         CUSTOMER: 'ชื่อลูกค้า', DATE: 'วันที่', PHONE: 'เบอร์ติดต่อ',
         CATEGORIES: 'หมวดหมู่', CHANNEL: 'ช่องทาง', INTEREST: 'รายการที่สนใจ',
@@ -28,7 +29,8 @@ let ui = {
     modalBody: document.getElementById('modalBody'),
     modalCloseBtn: document.getElementById('modalCloseBtn'),
     campaignSearchInput: document.getElementById('campaignSearchInput'),
-    campaignsTableHeader: document.getElementById('campaignsTableHeader')
+    campaignsTableHeader: document.getElementById('campaignsTableHeader'),
+    exportSheetBtn: document.getElementById('exportSheetBtn')
 };
 
 let charts = {};
@@ -1195,6 +1197,77 @@ async function exportDailyModalAsImage(branchName, displayDate) {
 }
 
 // ================================================================
+
+async function exportToGoogleSheet() {
+    const s = latestSalesAnalysis.summary;
+    const ads = latestAdsTotals || {};
+    const branchName = document.querySelector('h1').innerText.split(':')[0].replace('🚀 ', '').trim();
+
+    // คำนวณ PAR จากข้อมูลจริง
+    const PAR_P1 = 200; // เป้าหมายบิล P1
+    const PAR_P2 = 150; // เป้าหมาย P2 Leads
+
+    // ข้อมูลตามหัวข้อในรูปภาพ
+    const data = {
+        branch: branchName,
+        facebookAds: ads.spend || 0,
+        parBillP1: PAR_P1,
+        p1Revenue: s.p1Revenue || 0,
+        p1Bills: s.p1Bills || 0,
+        upP1Revenue: s.upp1Revenue || 0,
+        parP2: PAR_P2,
+        p2Named: s.p2Leads || 0, // P2 ที่ได้ชื่อ (Leads)
+        p2Entered: s.upp2Bills || 0, // P2 ที่เข้ามา (จำนวนบิล UP P2)
+        upP2Revenue: s.upp2Revenue || 0,
+        shortfallBill: Math.max(0, PAR_P1 - (s.p1Bills || 0)), // ยอดขาด/บิล = 200 - จำนวนบิล P1
+        shortfallP2: Math.max(0, PAR_P2 - (s.p2Leads || 0)), // ยอดขาด/P2 = 150 - P2 ที่ได้ชื่อ
+        totalRevenue: s.totalRevenue || 0
+    };
+
+    const btn = ui.exportSheetBtn;
+    const originalText = btn.textContent;
+    btn.textContent = '⏳ กำลังส่งข้อมูล...';
+    btn.disabled = true;
+
+    try {
+        // หมายเหตุ: ต้องมี Google Apps Script Webhook URL
+        const WEBHOOK_URL = CONFIG.GOOGLE_SHEET_WEBHOOK_URL; 
+        
+        if (!WEBHOOK_URL || WEBHOOK_URL === 'YOUR_APPS_SCRIPT_URL') {
+            alert('กรุณาตั้งค่า GOOGLE_SHEET_WEBHOOK_URL ใน CONFIG ก่อนใช้งาน');
+            throw new Error('Webhook URL not configured');
+        }
+
+        const response = await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            mode: 'no-cors', // ใช้ no-cors สำหรับ Apps Script
+            cache: 'no-cache',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                timestamp: new Date().toLocaleString('th-TH'),
+                startDate: ui.startDate.value,
+                endDate: ui.endDate.value,
+                ...data
+            })
+        });
+
+        btn.textContent = '✅ ส่งข้อมูลสำเร็จ!';
+        btn.style.background = '#2e7d32';
+    } catch (err) {
+        console.error('Export Error:', err);
+        alert('เกิดข้อผิดพลาดในการส่งข้อมูล: ' + err.message);
+        btn.textContent = '❌ ส่งข้อมูลไม่สำเร็จ';
+        btn.style.background = '#c62828';
+    } finally {
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = 'linear-gradient(135deg, #34a853, #1b5e20)';
+            btn.disabled = false;
+        }, 3000);
+    }
+}
+
+// ================================================================
 // 8. PROMPT GENERATORS
 // ================================================================
 
@@ -1499,4 +1572,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('campaignSearchInput').addEventListener('input', () => {
         updateCampaignsTable();
     });
+
+    if (ui.exportSheetBtn) {
+        ui.exportSheetBtn.addEventListener('click', exportToGoogleSheet);
+    }
 });
